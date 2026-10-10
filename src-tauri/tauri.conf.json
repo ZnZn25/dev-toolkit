@@ -1,10 +1,10 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Local Format Studio",
-  "version": "1.0.0",
+  "productName": "实用工具箱",
+  "version": "1.0.1",
   "identifier": "dev.localformatstudio.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run dev:tauri",
     "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Local Format Studio",
+        "title": "实用工具箱",
         "width": 1280,
         "height": 820,
         "minWidth": 760,
@@ -30,7 +30,7 @@
     "active": true,
     "targets": ["nsis"],
     "icon": ["icons/app.ico"],
-    "shortDescription": "离线 JSON 与 SQL 格式化工具",
-    "longDescription": "完全本地运行的 JSON 与 SQL 格式化工具。"
+    "shortDescription": "本地开发实用工具箱",
+    "longDescription": "JSON、SQL、编码转换、文本与调试工具；HTTP 请求仅在用户操作时发送。"
   }
 }

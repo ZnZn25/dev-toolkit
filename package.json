@@ -1,12 +1,14 @@
 {
   "name": "local-format-studio",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 1420",
+    "dev": "node scripts/dev-web.mjs",
+    "dev:tauri": "vite --host 127.0.0.1 --port 1420 --strictPort",
     "build": "vue-tsc --noEmit && vite build",
-    "preview": "vite preview --host 127.0.0.1",
+    "preview": "vite preview --host 127.0.0.1 --port 8080 --strictPort",
+    "serve:web": "node scripts/serve-web.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build --bundles nsis",
     "tauri": "tauri",
@@ -16,10 +18,12 @@
     "@tauri-apps/api": "^2.12.2",
     "@tauri-apps/plugin-dialog": "^2.8.1",
     "@tauri-apps/plugin-fs": "^2.6.0",
+    "@tauri-apps/plugin-http": "^2.8.1",
     "jsonc-parser": "^3.3.1",
     "monaco-editor": "^0.57.0",
     "sql-formatter": "^15.9.0",
-    "vue": "^3.5.43"
+    "vue": "^3.5.43",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.1",
