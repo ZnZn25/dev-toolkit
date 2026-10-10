@@ -11,11 +11,31 @@ import JsonWorker from 'monaco-editor/language/json/json.worker?worker'
 import 'monaco-editor/language/json/monaco.contribution'
 import 'monaco-editor/languages/definitions/sql/register'
 
-type Props = { modelValue: string; language: 'json' | 'sql' | 'plaintext'; readOnly?: boolean; theme: 'dark' | 'light'; fontSize: number; indentStyle: '2' | '4' | 'tab' }
+type Props = { modelValue: string; language: 'json' | 'sql' | 'plaintext'; readOnly?: boolean; theme: 'dark' | 'light'; fontSize: number; indentStyle: '2' | '4' | 'tab'; searchQuery?: string }
 const props = withDefaults(defineProps<Props>(), { readOnly: false, fontSize: 13, indentStyle: '2' })
-const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: string]; 'search-count': [result: { count: number; capped: boolean }]; cut: [] }>()
 const host = ref<HTMLDivElement>()
 let editor: monaco.editor.IStandaloneCodeEditor | undefined
+let searchDecorations: string[] = []
+let cutHandler: ((event: ClipboardEvent) => void) | undefined
+const maxSearchHighlights = 5000
+
+function updateSearchMatches() {
+  const model = editor?.getModel()
+  if (!editor || !model || !props.searchQuery) {
+    if (editor) searchDecorations = editor.deltaDecorations(searchDecorations, [])
+    emit('search-count', { count: 0, capped: false })
+    return
+  }
+  // ponytail: cap synchronous Monaco search results at 5,000 to keep large-document searches responsive; a worker-backed index can raise this later.
+  const matches = model.findMatches(props.searchQuery, false, false, false, null, false, maxSearchHighlights + 1)
+  const capped = matches.length > maxSearchHighlights
+  searchDecorations = editor.deltaDecorations(searchDecorations, matches.slice(0, maxSearchHighlights).map(({ range }) => ({
+    range,
+    options: { inlineClassName: 'result-search-match' },
+  })))
+  emit('search-count', { count: capped ? maxSearchHighlights : matches.length, capped })
+}
 
 ;(self as typeof self & { MonacoEnvironment?: { getWorker: (_id: string, label: string) => Worker } }).MonacoEnvironment = {
   getWorker: (_id, label) => label === 'json' ? new JsonWorker() : new EditorWorker(),
@@ -50,13 +70,24 @@ onMounted(() => {
     scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
     contextmenu: true,
   })
-  editor.onDidChangeModelContent(() => emit('update:modelValue', editor?.getValue() ?? ''))
+  editor.onDidChangeModelContent(() => {
+    emit('update:modelValue', editor?.getValue() ?? '')
+    updateSearchMatches()
+  })
+  cutHandler = (event) => {
+    if (!props.readOnly) return
+    event.preventDefault()
+    emit('cut')
+  }
+  host.value.addEventListener('cut', cutHandler, true)
+  updateSearchMatches()
 })
 
 watch(() => props.modelValue, (value) => {
   if (!editor || editor.getValue() === value) return
   editor.setValue(value)
 })
+watch(() => props.searchQuery, updateSearchMatches)
 watch(() => props.language, (language) => { if (editor) monaco.editor.setModelLanguage(editor.getModel()!, language) })
 watch(() => props.indentStyle, (style) => editor?.updateOptions({ tabSize: style === 'tab' ? 1 : Number(style), insertSpaces: style !== 'tab' }))
 watch(() => props.fontSize, (fontSize) => editor?.updateOptions({ fontSize }))
@@ -66,7 +97,10 @@ watch(() => props.theme, (theme) => {
   monaco.editor.setTheme(theme === 'dark' ? 'vs-dark' : 'vs')
 })
 
-onBeforeUnmount(() => editor?.dispose())
+onBeforeUnmount(() => {
+  if (host.value && cutHandler) host.value.removeEventListener('cut', cutHandler, true)
+  editor?.dispose()
+})
 
 defineExpose({
   focus: () => editor?.focus(),
