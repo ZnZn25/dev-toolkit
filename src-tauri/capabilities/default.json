@@ -10,6 +10,12 @@
     "dialog:allow-confirm",
     "fs:allow-read-text-file",
     "fs:allow-write-text-file",
+    "fs:allow-open",
+    "fs:allow-read",
+    "fs:allow-seek",
+    "fs:allow-fstat",
+    "fs:allow-stat",
+    "core:resources:allow-close",
     {
       "identifier": "http:default",
       "allow": [

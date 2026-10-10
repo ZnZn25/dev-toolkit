@@ -95,6 +95,7 @@ kbd { color: var(--faint); font: 10px/1 "Segoe UI", sans-serif; white-space: now
 .toolbar-primary { grid-column: 1; }
 .toolbar-run-button { grid-column: 2; justify-self: center; }
 .toolbar-end { grid-column: 3; display: flex; align-items: center; justify-content: flex-end; gap: 9px; min-width: 0; }
+.system-toolbar-label { grid-column: 1 / -1; color: var(--muted); font-size: 10px; text-align: center; }
 .toolbar-secondary { justify-content: flex-end; }
 .toolbar-mode-actions { display: flex; align-items: center; gap: 5px; }
 .button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 31px; padding: 0 9px; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: transparent; font-size: 11px; font-weight: 550; white-space: nowrap; cursor: pointer; transition: background .16s ease, color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
@@ -132,6 +133,8 @@ kbd { color: var(--faint); font: 10px/1 "Segoe UI", sans-serif; white-space: now
 
 .workbench { position: relative; display: grid; grid-template-columns: 150px minmax(0, 1fr); min-height: 0; overflow: hidden; background: var(--bg); }
 .workbench-content { display: grid; grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; transition: grid-template-columns .24s cubic-bezier(.2,.75,.25,1); }
+.system-workspace { display: flex; min-width: 0; min-height: 0; overflow: hidden; }
+.system-workspace > * { flex: 1 1 auto; }
 .workbench-content.single-pane.focus-input { grid-template-columns: minmax(0, 1fr) 0px 0px; }
 .workbench-content.single-pane.focus-output { grid-template-columns: 0px 0px minmax(0, 1fr); }
 .feature-sidebar { display: flex; flex-direction: column; align-items: stretch; gap: 3px; min-height: 0; padding: 12px 8px; overflow-y: auto; overscroll-behavior: contain; border-right: 1px solid var(--line); background: var(--panel); transition: color .2s ease, background-color .2s ease, border-color .2s ease; }
