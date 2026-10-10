@@ -1,0 +1,112 @@
+name: Publish Windows installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - package-lock.json
+      - src-tauri/Cargo.toml
+      - src-tauri/Cargo.lock
+      - src-tauri/tauri.conf.json
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check release version
+        id: version
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $lock = Get-Content package-lock.json -Raw | ConvertFrom-Json
+          $tauri = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $cargoVersion = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          $cargoLock = Get-Content src-tauri/Cargo.lock -Raw
+          $cargoLockVersion = [regex]::Match($cargoLock, '(?ms)^\[\[package\]\]\r?\nname = "local-format-studio"\r?\nversion = "([^"]+)"').Groups[1].Value
+          $versions = @($package.version, $lock.version, $lock.packages[''].version, $tauri.version, $cargoVersion, $cargoLockVersion)
+          if (($versions | Select-Object -Unique).Count -ne 1) {
+            throw "Version mismatch: $($versions -join ', ')"
+          }
+
+          $version = $versions[0]
+          $current = [version]::Parse($version)
+          $latestTag = gh release list --limit 1 --json tagName --jq '.[0].tagName'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read the latest GitHub Release.' }
+          if ($latestTag) {
+            $latest = [version]::Parse($latestTag.TrimStart('v'))
+            if ($current -lt $latest) { throw "Version $version is older than latest release $latestTag." }
+          }
+
+          $tag = "v$version"
+          $existingAssets = gh release view $tag --json assets --jq '.assets[].name' 2>$null
+          $releaseExists = $LASTEXITCODE -eq 0
+          $assetName = "dev-toolkit-$version-x64-setup.exe"
+          $assetExists = $releaseExists -and ($existingAssets -contains $assetName)
+          $publish = -not $assetExists
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "release_exists=$($releaseExists.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "publish=$($publish.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-node@v4
+        if: steps.version.outputs.publish == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.version.outputs.publish == 'true'
+
+      - name: Install dependencies
+        if: steps.version.outputs.publish == 'true'
+        run: npm ci
+
+      - name: Check
+        if: steps.version.outputs.publish == 'true'
+        run: npm run check
+
+      - name: Build NSIS installer
+        if: steps.version.outputs.publish == 'true'
+        run: npm run tauri:build
+
+      - name: Prepare release asset
+        id: asset
+        if: steps.version.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $installer = Get-ChildItem -LiteralPath 'src-tauri/target/release/bundle/nsis' -Filter '*-setup.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'The NSIS installer was not produced.' }
+          $assetPath = Join-Path $env:RUNNER_TEMP "dev-toolkit-$env:VERSION-x64-setup.exe"
+          Copy-Item -LiteralPath $installer.FullName -Destination $assetPath
+          "path=$assetPath" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.publish == 'true' && steps.version.outputs.release_exists != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          ASSET_PATH: ${{ steps.asset.outputs.path }}
+          TARGET_SHA: ${{ github.sha }}
+        run: gh release create "$env:RELEASE_TAG" "$env:ASSET_PATH" --target "$env:TARGET_SHA" --title "$env:RELEASE_TAG" --generate-notes
+
+      - name: Upload installer to existing Release
+        if: steps.version.outputs.publish == 'true' && steps.version.outputs.release_exists == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          ASSET_PATH: ${{ steps.asset.outputs.path }}
+        run: gh release upload "$env:RELEASE_TAG" "$env:ASSET_PATH" --clobber

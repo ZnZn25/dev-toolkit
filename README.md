@@ -75,6 +75,10 @@ npm run tauri:build
 
 安装包会生成在 `src-tauri/target/release/bundle/nsis/`；独立程序在 `src-tauri/target/release/`。WebView2 使用系统运行时，安装包默认在目标系统缺少运行时时静默下载官方引导程序；应用安装后，格式化本身可离线运行。若必须保证全离线安装，可改用 Tauri 的 `offlineInstaller` 模式，代价是安装包额外增加约 127 MB。
 
+### 自动发布 Windows 安装包
+
+准备发布时，将 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 和 `src-tauri/tauri.conf.json` 的版本号统一升级，并推送到 `main`。GitHub Actions 会先检查版本，再运行 `npm run check` 和 Windows NSIS 打包，并自动创建或补齐对应的 `v<版本号>` Release 与安装包附件。版本号没有变化时不会重复发布。
+
 ## 快捷键
 
 | 快捷键 | 操作 |
