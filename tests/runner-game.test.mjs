@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { intersects, obstacleGap, obstacleHitbox, playerHitbox, RUNNER, RunnerSimulation, speedForScore } from '../src/core/runner-game.ts'
-import { loadRunnerBestScore, RUNNER_BEST_SCORE_KEY, saveRunnerBestScore } from '../src/core/runner-record.ts'
+import { evolutionLevelForCoins } from '../src/core/runner-evolution.ts'
+import { loadRunnerBestScore, loadRunnerEvolutionRecord, RUNNER_BEST_SCORE_KEY, RUNNER_EVOLUTION_RECORD_KEY, saveRunnerBestScore, saveRunnerEvolutionRecord } from '../src/core/runner-record.ts'
 import { CoinManager, POWER_UP_INFO, PowerUpManager } from '../src/core/runner-items.ts'
 
 function stopNaturalSpawns(game) {
@@ -312,6 +313,60 @@ test('coins are magnetized independently and each collected coin adds ten points
   assert.equal(game.state.score, 10)
 })
 
+test('evolution levels switch at the exact coin thresholds', () => {
+  assert.equal(evolutionLevelForCoins(49), 1)
+  assert.equal(evolutionLevelForCoins(50), 2)
+  assert.equal(evolutionLevelForCoins(149), 2)
+  assert.equal(evolutionLevelForCoins(150), 3)
+  assert.equal(evolutionLevelForCoins(299), 3)
+  assert.equal(evolutionLevelForCoins(300), 4)
+  assert.equal(evolutionLevelForCoins(499), 4)
+  assert.equal(evolutionLevelForCoins(500), 5)
+  assert.equal(evolutionLevelForCoins(Number.POSITIVE_INFINITY), 1)
+})
+
+test('coin batches can cross multiple evolution levels and preserve lifetime progress on restart', () => {
+  const game = new RunnerSimulation(0, () => 0.5, { lifetimeCoins: 23, highestEvolutionLevel: 1 })
+  game.start()
+  stopNaturalSpawns(game)
+  game.state.coinsCollected = 49
+  const x = RUNNER.playerX + 48 + game.state.worldSpeed / 60
+  game.state.coins = Array.from({ length: 101 }, (_, index) => ({
+    id: index + 1, x, y: RUNNER.groundY - 66, radius: 13, phase: 0,
+    hitbox: { left: x - 13, right: x + 13, top: RUNNER.groundY - 79, bottom: RUNNER.groundY - 53 },
+  }))
+  const events = game.step(1 / 60)
+  assert.equal(game.state.coinsCollected, 150)
+  assert.equal(game.state.lifetimeCoins, 124)
+  assert.equal(game.state.evolutionLevel, 3)
+  assert.equal(game.state.highestEvolutionLevel, 3)
+  assert.ok(events.includes('evolution-3'))
+  assert.equal(game.state.evolutionRemaining, 2.4)
+
+  game.pause()
+  game.step(0.1)
+  assert.equal(game.state.evolutionRemaining, 2.4)
+  game.resume()
+  game.restart()
+  assert.equal(game.state.coinsCollected, 0)
+  assert.equal(game.state.evolutionLevel, 1)
+  assert.equal(game.state.lifetimeCoins, 124)
+  assert.equal(game.state.highestEvolutionLevel, 3)
+})
+
+test('a magnet-attracted coin also advances evolution', () => {
+  const game = new RunnerSimulation(0, () => 0.5)
+  game.start()
+  stopNaturalSpawns(game)
+  game.state.coinsCollected = 49
+  game.state.activePowerUps.magnetRemaining = 5
+  const x = RUNNER.playerX + 118
+  game.state.coins.push({ id: 1, x, y: RUNNER.groundY - 66, radius: 13, phase: 0, hitbox: { left: x - 13, right: x + 13, top: RUNNER.groundY - 79, bottom: RUNNER.groundY - 53 } })
+  assert.ok(game.step(0.1).includes('coin'))
+  assert.equal(game.state.coinsCollected, 50)
+  assert.equal(game.state.evolutionLevel, 2)
+})
+
 test('heart pickup caps at three, while a full-health pickup becomes a score bonus', () => {
   const game = new RunnerSimulation(0, () => 0.5)
   game.start(); stopNaturalSpawns(game)
@@ -329,6 +384,8 @@ test('heart pickup caps at three, while a full-health pickup becomes a score bon
   assert.equal(full.state.health, 3)
   assert.equal(full.state.bonusScore, 30)
   assert.equal(full.state.score, 30)
+  assert.equal(full.state.coinsCollected, 0)
+  assert.equal(full.state.evolutionLevel, 1)
 })
 
 test('same power-up refreshes its timer and independent effects coexist', () => {
@@ -367,4 +424,20 @@ test('record storage validates values and survives unavailable storage', () => {
   saveRunnerBestScore(-1, storage)
   assert.equal(loadRunnerBestScore(storage), 456)
   assert.equal(loadRunnerBestScore({ getItem() { throw new Error('blocked') }, setItem() {} }), 0)
+})
+
+test('evolution record stores lifetime coins and sanitizes malformed values', () => {
+  const values = new Map()
+  const storage = {
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  }
+  assert.deepEqual(loadRunnerEvolutionRecord(storage), { lifetimeCoins: 0, highestEvolutionLevel: 1 })
+  saveRunnerEvolutionRecord({ lifetimeCoins: 124, highestEvolutionLevel: 3 }, storage)
+  assert.deepEqual(loadRunnerEvolutionRecord(storage), { lifetimeCoins: 124, highestEvolutionLevel: 3 })
+  assert.equal(values.has(RUNNER_EVOLUTION_RECORD_KEY), true)
+  values.set(RUNNER_EVOLUTION_RECORD_KEY, '{"lifetimeCoins":-4,"highestEvolutionLevel":9}')
+  assert.deepEqual(loadRunnerEvolutionRecord(storage), { lifetimeCoins: 0, highestEvolutionLevel: 1 })
+  saveRunnerEvolutionRecord({ lifetimeCoins: -1, highestEvolutionLevel: 3 }, storage)
+  assert.deepEqual(loadRunnerEvolutionRecord(storage), { lifetimeCoins: 0, highestEvolutionLevel: 1 })
 })

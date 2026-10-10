@@ -8,6 +8,7 @@ Windows 桌面端开发实用工具箱，基于 Tauri + Vue 3 + TypeScript。除
 - JSON 使用严格解析，错误状态显示行号和列号。格式器保留数字、字符串和键的原始词元，所以不会把大整数舍入，也不会合并重复键。
 - SQL 使用 PostgreSQL 方言，另可选 MySQL 和 SQL Server；支持关键字大小写、常见 DML / DDL、多语句、注释、引号标识符、参数和 PostgreSQL 运算符。
 - UUID v4 批量生成，支持标准小写、大写、无连字符、URN 和花括号格式；数量可自定义，提供 10、30、50 个快捷选项，最多 10,000 个。
+- 条形码 / 二维码生成器支持 QR、Code 128、Code 39、EAN-13、EAN-8、UPC-A 和 ITF-14；二维码可选纠错等级，结果在本地生成 SVG，可预览、复制源码和保存。
 - 时间戳支持秒 / 毫秒与 ISO 日期互转；Base64 按 UTF-8 文本编解码；URL 使用百分号编码解码；Ping 支持指定次数或持续发送并随时停止。
 - 文本 Diff 并列接收原文和新文，按行输出新增、删除和未变更内容；正则测试显示匹配位置与捕获组，并在独立 Worker 内一秒超时。
 - Hash 支持 SHA-1、SHA-256、SHA-384、SHA-512；JWT 只解码 Header / Payload，不验证签名或声明。
@@ -16,6 +17,7 @@ Windows 桌面端开发实用工具箱，基于 Tauri + Vue 3 + TypeScript。除
 - XML 使用浏览器内置解析器校验和缩进，YAML 使用随应用打包的解析器校验和格式化。
 - Cron 检查标准五段数字表达式并显示本地时区的下五个运行时间；HTTP 请求支持常用方法、请求头、Body、超时和响应信息。
 - HTTP 响应解析器可整理状态行、响应头及 JSON / XML / YAML 正文，不发送网络请求。
+- 实时日志查看器可跟踪本地 Spring Boot `.log` / `.txt` 文件，增量读取并高亮日志级别，支持时间、关键字和线程筛选；端口占用检测器可查看 Windows 本机 TCP / UDP 端点、PID 和进程路径，结束进程前显示二次确认并复核进程身份。
 - HTTP 调试仅在点击“执行”后发送。Tauri 桌面端使用本机 HTTP 插件直连目标站点；浏览器预览仍受浏览器 CORS 规则限制。Ping 只在用户开始时使用本机系统命令向所填主机发送 ICMP 请求，输入不会经过 shell。
 - SQL 格式化后会比对原文与结果的词元顺序。字符串、注释、数字、操作符、标点或引号标识符被改写时，会拒绝结果并保留原始输入。格式器不解析或执行 SQL。
 - Monaco 编辑器支持语法着色、行号、折叠、自动换行、撤销/重做、拖入文件、单侧编辑区最大化、深浅主题和缩放字号；格式化结果支持搜索、高亮和命中统计。
@@ -90,7 +92,7 @@ npm run tauri:build
 
 ## 验证范围
 
-`npm run check` 覆盖 JSON / SQL 边界、JSON ↔ YAML、文本替换、HTTP 响应解析、UUID、时间戳、Base64 / URL、Diff、正则、Hash、JWT、YAML、Cron、进制和模拟 HTTP 响应。`npm run build` 运行 `vue-tsc` 和 Vite 生产构建；`cargo check --manifest-path src-tauri/Cargo.toml` 检查 Tauri 插件与原生端。
+`npm run check` 覆盖 JSON / SQL 边界、条码 / 二维码、JSON ↔ YAML、文本替换、HTTP 响应解析、UUID、时间戳、Base64 / URL、Diff、正则、Hash、JWT、YAML、Cron、进制、模拟 HTTP 响应、日志解析 / 筛选和端口输入校验。`npm run build` 运行 `vue-tsc` 和 Vite 生产构建；`cargo check --manifest-path src-tauri/Cargo.toml` 检查 Tauri 插件与原生端。
 
 ## Git 分支流程
 

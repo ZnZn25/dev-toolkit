@@ -28,6 +28,7 @@ export const toolGroups = [
   ] },
   { label: '开发辅助', tools: [
     { mode: 'uuid', name: 'UUID', label: 'UUID', icon: '#', inputTitle: '生成设置', extension: 'txt', fileExtensions: [], core: true, historyPolicy: 'content' },
+    { mode: 'barcode', name: '条形码 / 二维码', label: '条码', icon: '▥', inputTitle: '条码内容', extension: 'svg', fileExtensions: [], core: false, historyPolicy: 'content' },
     { mode: 'timestamp', name: '时间戳转换', label: '时间戳', icon: '◷', inputTitle: '时间戳或日期', extension: 'txt', fileExtensions: [], core: false, historyPolicy: 'content' },
     { mode: 'cron', name: 'Cron 表达式', label: 'Cron', icon: '◴', inputTitle: 'Cron 表达式', extension: 'txt', fileExtensions: [], core: false, historyPolicy: 'content' },
     { mode: 'regex', name: '正则测试', label: '正则', icon: '.*', inputTitle: '待测试文本', extension: 'txt', fileExtensions: [], core: false, historyPolicy: 'content' },
@@ -45,6 +46,10 @@ export const toolGroups = [
     { mode: 'ping', name: 'Ping', label: 'Ping', icon: '↗', inputTitle: 'Ping 目标', extension: 'txt', fileExtensions: [], core: false, historyPolicy: 'content' },
     { mode: 'http', name: 'HTTP 请求', label: 'HTTP 请求', icon: '⇄', inputTitle: '请求 Body', extension: 'txt', fileExtensions: [], core: false, historyPolicy: 'content' },
     { mode: 'response', name: 'HTTP 响应解析', label: '响应解析', icon: '⇣', inputTitle: 'HTTP 原始响应或响应正文', extension: 'txt', fileExtensions: [], core: false, historyPolicy: 'content' },
+  ] },
+  { label: '本机诊断', tools: [
+    { mode: 'logs', name: '实时日志查看器', label: '实时日志', icon: '≋', inputTitle: '本地日志文件', extension: 'log', fileExtensions: [], core: false, historyPolicy: 'metadata' },
+    { mode: 'ports', name: '端口占用检测器', label: '端口检测', icon: '⌖', inputTitle: '本机监听端口', extension: 'txt', fileExtensions: [], core: false, historyPolicy: 'metadata' },
   ] },
   { label: '娱乐工具', tools: [
     { mode: 'yangyuanhang-run', name: '杨远航快跑', label: '杨远航快跑', icon: '🏃', inputTitle: '游戏', extension: 'txt', fileExtensions: [], core: false, historyPolicy: 'metadata' },

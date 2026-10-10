@@ -1,4 +1,5 @@
 import type { RunnerEvent } from './runner-game.ts'
+import { evolutionForLevel, type RunnerEvolutionConfig, type RunnerEvolutionLevel } from './runner-evolution.ts'
 
 export type RunnerAudioSettings = {
   bgmEnabled: boolean
@@ -25,6 +26,12 @@ const MOTIFS = [
   [4, 7, 9, 7, 4, 2, 0, 2],
   [9, 12, 14, 12, 9, 7, 4, 2],
 ]
+const EVOLUTION_SOUNDS: Record<RunnerEvolutionConfig['evolutionSound'], Array<[number, number, number, OscillatorType]>> = {
+  swift: [[72, 0, 0.1, 'triangle'], [79, 0.08, 0.12, 'square'], [84, 0.18, 0.2, 'triangle']],
+  thunder: [[67, 0, 0.09, 'square'], [79, 0.08, 0.1, 'square'], [88, 0.18, 0.2, 'triangle']],
+  gold: [[72, 0, 0.12, 'triangle'], [79, 0.11, 0.12, 'triangle'], [84, 0.22, 0.12, 'triangle'], [91, 0.34, 0.22, 'sine']],
+  cosmic: [[67, 0, 0.1, 'sine'], [79, 0.1, 0.12, 'triangle'], [84, 0.21, 0.12, 'square'], [96, 0.34, 0.26, 'sine']],
+}
 const clamp = (value: number): number => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0))
 
 export function sanitizeRunnerAudioSettings(value: unknown): RunnerAudioSettings {
@@ -185,12 +192,17 @@ export class RunnerAudioManager {
     if (!this.settings.sfxEnabled || this.settings.muted || this.disposed) return
     const context = this.ensureContext()
     if (!context || context.state !== 'running' || !this.effectsBus) return
-    const key = event === 'coin' ? 'coin' : event.startsWith('powerup-') ? 'powerup' : event
-    const cooldown = event === 'coin' ? 0.065 : event.startsWith('powerup-') ? 0.12 : 0.04
+    const isEvolution = event.startsWith('evolution-')
+    const key = event === 'coin' ? 'coin' : event.startsWith('powerup-') ? 'powerup' : isEvolution ? 'evolution' : event
+    const cooldown = event === 'coin' ? 0.065 : event.startsWith('powerup-') ? 0.12 : isEvolution ? 0.3 : 0.04
     const last = this.lastSoundAt.get(key) ?? -Infinity
     if (context.currentTime - last < cooldown) return
     this.lastSoundAt.set(key, context.currentTime)
-    if (event === 'jump') this.playSfxNotes([[64, 0, 0.11, 'square'], [72, 0.065, 0.13, 'triangle']])
+    if (isEvolution) {
+      const level = Number(event.slice('evolution-'.length)) as RunnerEvolutionLevel
+      this.playSfxNotes(EVOLUTION_SOUNDS[evolutionForLevel(level).evolutionSound])
+    }
+    else if (event === 'jump') this.playSfxNotes([[64, 0, 0.11, 'square'], [72, 0.065, 0.13, 'triangle']])
     else if (event === 'double-jump') this.playSfxNotes([[78, 0, 0.09, 'square'], [84, 0.055, 0.1, 'square'], [88, 0.11, 0.13, 'triangle']])
     else if (event === 'land') this.playSfxNotes([[45, 0, 0.075, 'triangle']])
     else if (event === 'passed' || event === 'coin') this.playSfxNotes(event === 'coin' ? [[88, 0, 0.055, 'square'], [96, 0.045, 0.09, 'triangle']] : [[79, 0, 0.11, 'triangle']])

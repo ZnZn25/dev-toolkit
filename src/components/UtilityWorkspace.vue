@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { Channel, invoke, isTauri } from '@tauri-apps/api/core'
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 import CodeEditor from './CodeEditor.vue'
 import { getTool, type ToolMode } from '../core/tool-metadata'
+import type { BarcodeFormat, QrErrorCorrection } from '../core/barcode'
 import {
   compareText, convertJsonYaml, convertRadix, dateToTimestamp, timestampToDate, decodeBase64, decodeJwt, decodeUrl, dedupeAndSort,
   encodeBase64, encodeUrl, formatXml, formatYaml, hashText, nextCronRuns, parseHttpResponse, replaceText, sendHttpRequest,
 } from '../core/utilities'
 import { testRegexInWorker } from '../core/regex'
 
-type UtilityMode = Exclude<ToolMode, 'json' | 'sql' | 'uuid' | 'yangyuanhang-run'>
+type UtilityMode = Exclude<ToolMode, 'json' | 'sql' | 'uuid' | 'logs' | 'ports' | 'yangyuanhang-run'>
 type PingOutput = { chunk: string; done: boolean }
 const props = defineProps<{
   mode: UtilityMode
@@ -46,6 +47,20 @@ const replaceSearch = ref('')
 const replacement = ref('')
 const replaceCaseSensitive = ref(false)
 const replacementCount = ref<number | null>(null)
+const barcodeFormat = ref<BarcodeFormat>('QR')
+const qrErrorCorrection = ref<QrErrorCorrection>('M')
+const barcodeFormats: { value: BarcodeFormat; label: string }[] = [
+  { value: 'QR', label: '二维码' },
+  { value: 'CODE128', label: 'Code 128' },
+  { value: 'CODE39', label: 'Code 39' },
+  { value: 'EAN13', label: 'EAN-13' },
+  { value: 'EAN8', label: 'EAN-8' },
+  { value: 'UPC', label: 'UPC-A' },
+  { value: 'ITF14', label: 'ITF-14' },
+]
+const barcodeSvgUrl = computed(() => props.mode === 'barcode' && props.resultValue.startsWith('<svg')
+  ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(props.resultValue)}`
+  : '')
 let pingStopRequested = false
 let pingController: AbortController | undefined
 const maxPingOutputCharacters = 256 * 1024
@@ -164,10 +179,15 @@ async function run(): Promise<string> {
     }
     case 'json-yaml': return convertJsonYaml(value, jsonYamlDirection.value, props.indentStyle)
     case 'response': return parseHttpResponse(value, props.indentStyle)
+    case 'barcode': {
+      const { generateBarcodeSvg } = await import('../core/barcode')
+      return generateBarcodeSvg(value, barcodeFormat.value, qrErrorCorrection.value)
+    }
   }
 }
 
 function outputExtension(): string {
+  if (props.mode === 'barcode') return 'svg'
   return props.mode === 'json-yaml' ? jsonYamlDirection.value === 'json-to-yaml' ? 'yaml' : 'json' : getTool(props.mode).extension
 }
 
@@ -186,6 +206,7 @@ function historyInput(): string {
     case 'ping': return `目标：${pingTarget.value}；${pingContinuous.value ? '长 Ping' : `次数：${pingCount.value}`}`
     case 'replace': return `查找：${replaceSearch.value}\n替换为：${replacement.value}\n输入：\n${input}`
     case 'json-yaml': return `方向：${jsonYamlDirection.value}\n${input}`
+    case 'barcode': return `码制：${barcodeFormat.value}${barcodeFormat.value === 'QR' ? `；纠错级别：${qrErrorCorrection.value}` : ''}\n${input}`
     default: return input
   }
 }
@@ -211,6 +232,11 @@ defineExpose({ run, stop: stopPing, outputExtension, historyInput })
       <template v-else-if="mode === 'regex'">
         <label>正则 <input v-model="regexPattern" type="text" placeholder="例如：\\b\w+\\b" /></label>
         <label>Flags <input v-model="regexFlags" class="short-field" type="text" placeholder="gim" /></label>
+      </template>
+      <template v-else-if="mode === 'barcode'">
+        <label>码制 <select v-model="barcodeFormat" aria-label="条码类型"><option v-for="format in barcodeFormats" :key="format.value" :value="format.value">{{ format.label }}</option></select></label>
+        <label v-if="barcodeFormat === 'QR'">纠错 <select v-model="qrErrorCorrection" aria-label="二维码纠错级别"><option value="L">L · 低</option><option value="M">M · 中</option><option value="Q">Q · 高</option><option value="H">H · 最高</option></select></label>
+        <span class="hint">离线生成 · 支持 SVG 保存</span>
       </template>
       <template v-else-if="mode === 'hash'">
         <label>算法 <select v-model="hashAlgorithm"><option>SHA-1</option><option>SHA-256</option><option>SHA-384</option><option>SHA-512</option></select></label>
@@ -273,11 +299,12 @@ defineExpose({ run, stop: stopPing, outputExtension, historyInput })
   <div class="split-rail"><span></span><span class="rail-grip">•••</span><span></span></div>
   <article class="editor-panel output-panel">
     <div class="panel-heading">
-      <div class="panel-title"><span class="panel-dot result-dot"></span><strong>{{ mode === 'diff' ? 'Diff 结果' : mode === 'http' ? '响应' : mode === 'ping' ? 'Ping 结果' : mode === 'response' ? '解析结果' : '处理结果' }}</strong><span class="panel-tag result-tag">OUTPUT</span></div>
-      <div class="panel-tools"><span class="hint">只读预览</span><button class="panel-action" :title="focusPane === 'output' ? '退出最大化' : '最大化编辑区'" @click="emit('update:focusPane', focusPane === 'output' ? null : 'output')">{{ focusPane === 'output' ? '⤢' : '⛶' }}</button></div>
+      <div class="panel-title"><span class="panel-dot result-dot"></span><strong>{{ mode === 'diff' ? 'Diff 结果' : mode === 'http' ? '响应' : mode === 'ping' ? 'Ping 结果' : mode === 'response' ? '解析结果' : mode === 'barcode' ? '生成预览' : '处理结果' }}</strong><span class="panel-tag result-tag">{{ mode === 'barcode' ? 'SVG' : 'OUTPUT' }}</span></div>
+      <div class="panel-tools"><span class="hint">{{ mode === 'barcode' ? '矢量图 · 清晰可缩放' : '只读预览' }}</span><button class="panel-action" :title="focusPane === 'output' ? '退出最大化' : '最大化编辑区'" @click="emit('update:focusPane', focusPane === 'output' ? null : 'output')">{{ focusPane === 'output' ? '⤢' : '⛶' }}</button></div>
     </div>
     <div class="output-content">
-      <CodeEditor :model-value="resultValue" language="plaintext" :theme="theme" :font-size="fontSize" :indent-style="indentStyle" read-only />
+      <div v-if="mode === 'barcode' && barcodeSvgUrl" class="barcode-preview"><img :src="barcodeSvgUrl" :alt="barcodeFormat === 'QR' ? '生成的二维码' : '生成的条形码'" /><span>本地图像 · 保存按钮可导出 SVG 文件</span></div>
+      <CodeEditor v-else :model-value="resultValue" language="plaintext" :theme="theme" :font-size="fontSize" :indent-style="indentStyle" read-only />
       <Transition name="empty-state"><div v-if="!resultValue" class="empty-state"><div class="empty-mark">⌘</div><strong>结果会显示在这里</strong><span>{{ mode === 'ping' ? '输入主机名或 IP 地址后开始 Ping' : '点击工具栏中的“执行”' }}</span></div></Transition>
     </div>
   </article>
@@ -297,6 +324,9 @@ defineExpose({ run, stop: stopPing, outputExtension, historyInput })
 .utility-diff-source { display: grid; grid-template-rows: 22px minmax(0, 1fr) 22px minmax(0, 1fr); min-height: 0; overflow: hidden; }
 .utility-subheading { display: flex; align-items: center; padding: 0 12px; border-bottom: 1px solid var(--line-soft); color: var(--muted); background: var(--panel); font-size: 9px; }
 .utility-diff-source :deep(.editor-host) { min-height: 0; }
+.barcode-preview { grid-area: 1 / 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 0; padding: 24px; overflow: auto; background: var(--editor-bg); }
+.barcode-preview img { display: block; max-width: 100%; max-height: calc(100% - 28px); padding: 16px; border-radius: 8px; background: #fff; object-fit: contain; }
+.barcode-preview span { color: var(--muted); font-size: 10px; }
 .utility-input-panel { grid-template-rows: 42px auto minmax(0, 1fr); }
 .utility-input-panel:has(.utility-multiline-setting) { grid-template-rows: 42px auto 44px minmax(0, 1fr); }
 .utility-input-panel:has(.utility-diff-source) { grid-template-rows: 42px auto minmax(0, 1fr); }
