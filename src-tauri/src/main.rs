@@ -12,6 +12,8 @@ use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::State;
 
+mod ports;
+
 #[derive(Default)]
 struct PingProcess {
     child: Mutex<Option<(u64, Child)>>,
@@ -151,7 +153,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
-        .invoke_handler(tauri::generate_handler![start_ping, stop_ping])
+        .invoke_handler(tauri::generate_handler![start_ping, stop_ping, ports::find_port_usage, ports::terminate_port_process])
         .run(tauri::generate_context!())
         .expect("failed to run 实用工具箱");
 }

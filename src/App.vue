@@ -7,12 +7,14 @@ import { open as openDialog, save as saveDialog, confirm } from '@tauri-apps/plu
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import CodeEditor from './components/CodeEditor.vue'
 import UtilityWorkspace from './components/UtilityWorkspace.vue'
+import LiveLogViewer from './components/LiveLogViewer.vue'
+import PortInspector from './components/PortInspector.vue'
 import { FormatterWorker, type FormatAction } from './core/format-worker-client'
 import { getTool, historyContent, parseRecentModes, toolGroups, toolModeByExtension, type ToolInfo, type ToolMode } from './core/tool-metadata'
 import { generateUuidBatch, type UuidFormat } from './core/uuid'
 
 type Mode = ToolMode
-type UtilityMode = Exclude<Mode, 'json' | 'sql' | 'uuid'>
+type UtilityMode = Exclude<Mode, 'json' | 'sql' | 'uuid' | 'logs' | 'ports'>
 type Theme = 'dark' | 'light'
 type Pane = 'input' | 'output' | null
 type EditorHandle = { focus: () => void; hasTextFocus: () => boolean }
@@ -76,6 +78,7 @@ const filteredToolGroups = computed(() => {
   return groups.filter(group => group.tools.length)
 })
 const utilityMode = computed(() => mode.value as UtilityMode)
+const isSystemMode = computed(() => mode.value === 'logs' || mode.value === 'ports')
 const uuidFormat = ref<UuidFormat>('standard')
 const uuidCount = ref<number | string>(10)
 const sourceText = ref('')
@@ -107,7 +110,7 @@ let nextHistoryId = 1
 let activeOperationId = 0
 let stoppingPingOperationId: number | undefined
 const metrics = ref({ lines: 1, bytes: 0 })
-const activeText = computed(() => mode.value === 'uuid' ? resultText.value : sourceText.value)
+const activeText = computed(() => isSystemMode.value ? '' : mode.value === 'uuid' ? resultText.value : sourceText.value)
 const charCount = computed(() => activeText.value.length)
 
 function notify(message: string) {
@@ -202,6 +205,7 @@ async function run(action: FormatAction, successText: string) {
 }
 
 function format() {
+  if (isSystemMode.value) return
   if (mode.value === 'ping' && busy.value) return stopUtility()
   if (mode.value === 'uuid') return generateUuids()
   if (mode.value !== 'json' && mode.value !== 'sql') return void runUtility()
@@ -365,7 +369,7 @@ async function openDroppedFile(file: File) {
 
 async function saveFile() {
   if (!resultText.value) { notify('没有可保存的结果'); return }
-  const extension = mode.value === 'json-yaml' ? utilityWorkspace.value?.outputExtension() ?? getTool(mode.value).extension : getTool(mode.value).extension
+  const extension = mode.value === 'json-yaml' || mode.value === 'barcode' ? utilityWorkspace.value?.outputExtension() ?? getTool(mode.value).extension : getTool(mode.value).extension
   if (isTauri()) {
     try {
       const path = await saveDialog({ defaultPath: `formatted.${extension}`, filters: [{ name: extension.toUpperCase(), extensions: [extension] }] })
@@ -376,7 +380,8 @@ async function saveFile() {
     } catch (error) { notify(`保存失败：${(error as Error).message}`) }
   } else {
     const link = document.createElement('a')
-    link.href = URL.createObjectURL(new Blob([resultText.value], { type: 'text/plain;charset=utf-8' }))
+    const mimeType = extension === 'svg' ? 'image/svg+xml;charset=utf-8' : 'text/plain;charset=utf-8'
+    link.href = URL.createObjectURL(new Blob([resultText.value], { type: mimeType }))
     link.download = `formatted.${extension}`
     link.click()
     URL.revokeObjectURL(link.href)
@@ -483,6 +488,7 @@ function onGlobalKey(event: KeyboardEvent) {
     toolSearchInput.value?.focus()
     return
   }
+  if (isSystemMode.value) return
   if (!event.ctrlKey || event.altKey || event.shiftKey && event.key !== 'c') {
     if (event.ctrlKey && event.altKey && event.key.toLowerCase() === 'l') { event.preventDefault(); void format() }
     return
@@ -570,7 +576,7 @@ onBeforeUnmount(() => {
     </header>
 
     <section class="toolbar" aria-label="编辑操作">
-      <div class="toolbar-primary">
+      <Transition name="toolbar-content"><div v-if="!isSystemMode" class="toolbar-primary">
         <Transition name="toolbar-content"><div v-if="mode === 'json'" class="toolbar-mode-actions">
           <button class="button" :disabled="busy" @click="compact"><span class="button-glyph">⇢</span>压缩</button>
           <button class="button" :disabled="busy" @click="validate"><span class="button-glyph">✓</span>校验</button>
@@ -608,11 +614,11 @@ onBeforeUnmount(() => {
             <div v-else class="history-empty-mini">当前工具还没有历史记录</div>
           </div></Transition>
         </div>
-      </div>
-      <button class="button button-primary toolbar-run-button" :disabled="busy && mode !== 'ping'" @click="mode === 'ping' && busy ? stopUtility() : format()"><span class="button-glyph">{{ mode === 'ping' && busy ? '■' : mode === 'uuid' ? '◎' : '✦' }}</span>{{ mode === 'ping' && busy ? '停止 Ping' : mode === 'uuid' ? '生成 UUID' : getTool(mode).core ? '格式化' : '执行' }}<span v-if="mode !== 'ping' || !busy" class="shortcut">Ctrl Alt L</span></button>
-      <div class="toolbar-end">
+      </div></Transition>
+      <Transition name="toolbar-content"><button v-if="!isSystemMode" class="button button-primary toolbar-run-button" :disabled="busy && mode !== 'ping'" @click="mode === 'ping' && busy ? stopUtility() : format()"><span class="button-glyph">{{ mode === 'ping' && busy ? '■' : mode === 'uuid' ? '◎' : mode === 'barcode' ? '▥' : '✦' }}</span>{{ mode === 'ping' && busy ? '停止 Ping' : mode === 'uuid' ? '生成 UUID' : mode === 'barcode' ? '生成条码' : getTool(mode).core ? '格式化' : '执行' }}<span v-if="mode !== 'ping' || !busy" class="shortcut">Ctrl Alt L</span></button></Transition>
+      <Transition name="toolbar-content"><div v-if="!isSystemMode" class="toolbar-end">
         <div class="toolbar-secondary">
-          <button class="button" :disabled="!resultText" title="复制结果（Ctrl+C）" @click="copyResult"><span class="button-glyph">▣</span>复制结果<kbd>Ctrl C</kbd></button>
+          <button class="button" :disabled="!resultText" :title="mode === 'barcode' ? '复制 SVG 源码（Ctrl+C）' : '复制结果（Ctrl+C）'" @click="copyResult"><span class="button-glyph">▣</span>{{ mode === 'barcode' ? '复制 SVG' : '复制结果' }}<kbd>Ctrl C</kbd></button>
           <button class="button" title="打开本地文件（Ctrl+O）" @click="openFile"><span class="button-glyph">↥</span>打开</button>
           <button class="button" :disabled="!resultText" title="保存结果（Ctrl+S）" @click="saveFile"><span class="button-glyph">↧</span>保存</button>
           <button class="button button-quiet" title="清空输入和结果（Ctrl+L）" @click="clearContent"><span class="button-glyph">⌫</span>清空</button>
@@ -622,7 +628,8 @@ onBeforeUnmount(() => {
           <span v-else-if="mode === 'http' || mode === 'ping'" key="network" class="offline-label"><i></i>{{ mode === 'http' ? '发送时联网' : '开始时联网' }}</span>
           <span v-else key="offline" class="offline-label"><i></i>离线可用</span>
         </Transition>
-      </div>
+      </div></Transition>
+      <Transition name="toolbar-content"><span v-if="isSystemMode" class="system-toolbar-label">本机诊断 · 数据仅在本机读取</span></Transition>
     </section>
 
     <section class="workbench">
@@ -691,6 +698,8 @@ onBeforeUnmount(() => {
         </div>
       </article>
       </div>
+      <div v-else-if="mode === 'logs'" key="system-logs-workspace" class="system-workspace"><LiveLogViewer /></div>
+      <div v-else-if="mode === 'ports'" key="system-ports-workspace" class="system-workspace"><PortInspector /></div>
       <div v-else key="utility-workspace" class="workbench-content" :class="[{ 'single-pane': focusPane }, focusPane ? `focus-${focusPane}` : '']">
         <UtilityWorkspace ref="utilityWorkspace" :mode="utilityMode" v-model="sourceText" v-model:result-value="resultText" v-model:focus-pane="focusPane" :theme="settings.theme" :font-size="settings.fontSize" :indent-style="settings.indent" />
       </div>
@@ -700,7 +709,7 @@ onBeforeUnmount(() => {
     </section>
 
     <footer class="statusbar">
-      <div class="status-leading"><span class="status-mode">{{ mode.toUpperCase() }}</span><span class="status-divider"></span><span>{{ metrics.lines }} 行</span><span>{{ charCount.toLocaleString() }} 字符</span><span>{{ metrics.bytes.toLocaleString() }} B</span></div>
+      <div class="status-leading"><span class="status-mode">{{ mode.toUpperCase() }}</span><span class="status-divider"></span><template v-if="!isSystemMode"><span>{{ metrics.lines }} 行</span><span>{{ charCount.toLocaleString() }} 字符</span><span>{{ metrics.bytes.toLocaleString() }} B</span></template><span v-else>本机工具</span></div>
       <div class="status-message" :class="`status-${state}`"><span class="status-icon">{{ state === 'error' ? '!' : state === 'success' ? '✓' : '·' }}</span>{{ statusMessage }}<Transition name="fade-fast"><span v-if="errorLocation?.line" class="error-location">第 {{ errorLocation.line }} 行，第 {{ errorLocation.column }} 列</span></Transition></div>
       <div class="status-trailing"><span class="encoding">UTF-8</span><span>Windows</span></div>
     </footer>
