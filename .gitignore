@@ -1,0 +1,30 @@
+node_modules/
+dist/
+**/target/
+src-tauri/gen/schemas/
+release/
+coverage/
+.cache/
+.tmp/
+
+# Environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Logs and local tooling state
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
