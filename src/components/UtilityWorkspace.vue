@@ -10,7 +10,7 @@ import {
 } from '../core/utilities'
 import { testRegexInWorker } from '../core/regex'
 
-type UtilityMode = Exclude<ToolMode, 'json' | 'sql' | 'uuid'>
+type UtilityMode = Exclude<ToolMode, 'json' | 'sql' | 'uuid' | 'yangyuanhang-run'>
 type PingOutput = { chunk: string; done: boolean }
 const props = defineProps<{
   mode: UtilityMode

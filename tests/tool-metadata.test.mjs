@@ -7,6 +7,8 @@ test('tool metadata defines each mode once and drives file inference', () => {
   assert.equal(new Set(modes).size, modes.length)
   assert.equal(getTool('timestamp').inputTitle, '时间戳或日期')
   assert.equal(getTool('http').extension, 'txt')
+  assert.equal(getTool('yangyuanhang-run').name, '杨远航快跑')
+  assert.ok(toolGroups.some(group => group.label === '娱乐工具' && group.tools.some(tool => tool.mode === 'yangyuanhang-run')))
   assert.equal(toolModeByExtension.yml, 'yaml')
   assert.equal(toolModeByExtension.sql, 'sql')
 })

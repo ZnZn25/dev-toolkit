@@ -13,6 +13,7 @@
 
 * { box-sizing: border-box; }
 html, body, #app { width: 100%; height: 100%; min-width: 720px; min-height: 480px; margin: 0; overflow: hidden; }
+html:has(.app-shell.is-runner), body:has(.app-shell.is-runner), #app:has(.app-shell.is-runner), .app-shell.is-runner { min-width: 0; }
 button, select { font: inherit; }
 button { color: inherit; }
 button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid #6b99ff; outline-offset: 2px; }
@@ -131,6 +132,9 @@ kbd { color: var(--faint); font: 10px/1 "Segoe UI", sans-serif; white-space: now
 @keyframes pulse { 50% { opacity: .32; transform: scale(.78); } }
 
 .workbench { position: relative; display: grid; grid-template-columns: 150px minmax(0, 1fr); min-height: 0; overflow: hidden; background: var(--bg); }
+.workbench > .runner-workspace { grid-column: 2; min-width: 0; min-height: 0; overflow: hidden; }
+.runner-toolbar-hint { grid-column: 1 / -1; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--muted); font-size: 10px; }
+.runner-toolbar-hint b { color: var(--faint); font-weight: 500; }
 .workbench-content { display: grid; grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; transition: grid-template-columns .24s cubic-bezier(.2,.75,.25,1); }
 .workbench-content.single-pane.focus-input { grid-template-columns: minmax(0, 1fr) 0px 0px; }
 .workbench-content.single-pane.focus-output { grid-template-columns: 0px 0px minmax(0, 1fr); }
