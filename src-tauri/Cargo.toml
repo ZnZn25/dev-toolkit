@@ -1,6 +1,6 @@
 [package]
 name = "local-format-studio"
-version = "1.0.1"
+version = "1.0.2"
 description = "Local developer utility toolbox"
 authors = ["Local Format Studio"]
 edition = "2021"

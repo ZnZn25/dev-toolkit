@@ -707,7 +707,7 @@ onBeforeUnmount(() => {
       </div>
       <div v-else-if="mode === 'logs'" key="system-logs-workspace" class="system-workspace"><LiveLogViewer /></div>
       <div v-else-if="mode === 'ports'" key="system-ports-workspace" class="system-workspace"><PortInspector /></div>
-      <div v-else key="utility-workspace" class="workbench-content" :class="[{ 'single-pane': focusPane }, focusPane ? `focus-${focusPane}` : '']">
+      <div v-else-if="mode !== 'yangyuanhang-run'" key="utility-workspace" class="workbench-content" :class="[{ 'single-pane': focusPane }, focusPane ? `focus-${focusPane}` : '']">
         <UtilityWorkspace ref="utilityWorkspace" :mode="utilityMode" v-model="sourceText" v-model:result-value="resultText" v-model:focus-pane="focusPane" :theme="settings.theme" :font-size="settings.fontSize" :indent-style="settings.indent" />
       </div>
       </Transition>
