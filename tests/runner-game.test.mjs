@@ -199,7 +199,7 @@ test('restart clears the previous run and preserves the record', () => {
   assert.equal(game.state.coins.length, 0)
   assert.equal(game.state.powerUps.length, 0)
   assert.equal(game.state.coinsCollected, 0)
-  assert.deepEqual(game.state.activePowerUps, { shield: false, slowRemaining: 0, magnetRemaining: 0, dashRemaining: 0 })
+  assert.deepEqual(game.state.activePowerUps, { shield: false, slowRemaining: 0, magnetRemaining: 0, dashRemaining: 0, flightRemaining: 0, mushroomRemaining: 0 })
   assert.equal(game.state.particles.length, 0)
   assert.equal(game.state.bestScore, 120)
 })
@@ -314,14 +314,14 @@ test('coins are magnetized independently and each collected coin adds ten points
 })
 
 test('evolution levels switch at the exact coin thresholds', () => {
-  assert.equal(evolutionLevelForCoins(49), 1)
-  assert.equal(evolutionLevelForCoins(50), 2)
-  assert.equal(evolutionLevelForCoins(149), 2)
-  assert.equal(evolutionLevelForCoins(150), 3)
-  assert.equal(evolutionLevelForCoins(299), 3)
-  assert.equal(evolutionLevelForCoins(300), 4)
-  assert.equal(evolutionLevelForCoins(499), 4)
-  assert.equal(evolutionLevelForCoins(500), 5)
+  assert.equal(evolutionLevelForCoins(29), 1)
+  assert.equal(evolutionLevelForCoins(30), 2)
+  assert.equal(evolutionLevelForCoins(59), 2)
+  assert.equal(evolutionLevelForCoins(60), 3)
+  assert.equal(evolutionLevelForCoins(89), 3)
+  assert.equal(evolutionLevelForCoins(90), 4)
+  assert.equal(evolutionLevelForCoins(119), 4)
+  assert.equal(evolutionLevelForCoins(120), 5)
   assert.equal(evolutionLevelForCoins(Number.POSITIVE_INFINITY), 1)
 })
 
@@ -329,18 +329,18 @@ test('coin batches can cross multiple evolution levels and preserve lifetime pro
   const game = new RunnerSimulation(0, () => 0.5, { lifetimeCoins: 23, highestEvolutionLevel: 1 })
   game.start()
   stopNaturalSpawns(game)
-  game.state.coinsCollected = 49
+  game.state.coinsCollected = 29
   const x = RUNNER.playerX + 48 + game.state.worldSpeed / 60
   game.state.coins = Array.from({ length: 101 }, (_, index) => ({
     id: index + 1, x, y: RUNNER.groundY - 66, radius: 13, phase: 0,
     hitbox: { left: x - 13, right: x + 13, top: RUNNER.groundY - 79, bottom: RUNNER.groundY - 53 },
   }))
   const events = game.step(1 / 60)
-  assert.equal(game.state.coinsCollected, 150)
+  assert.equal(game.state.coinsCollected, 130)
   assert.equal(game.state.lifetimeCoins, 124)
-  assert.equal(game.state.evolutionLevel, 3)
-  assert.equal(game.state.highestEvolutionLevel, 3)
-  assert.ok(events.includes('evolution-3'))
+  assert.equal(game.state.evolutionLevel, 5)
+  assert.equal(game.state.highestEvolutionLevel, 5)
+  assert.ok(events.includes('evolution-5'))
   assert.equal(game.state.evolutionRemaining, 2.4)
 
   game.pause()
@@ -351,20 +351,115 @@ test('coin batches can cross multiple evolution levels and preserve lifetime pro
   assert.equal(game.state.coinsCollected, 0)
   assert.equal(game.state.evolutionLevel, 1)
   assert.equal(game.state.lifetimeCoins, 124)
-  assert.equal(game.state.highestEvolutionLevel, 3)
+  assert.equal(game.state.highestEvolutionLevel, 5)
 })
 
 test('a magnet-attracted coin also advances evolution', () => {
   const game = new RunnerSimulation(0, () => 0.5)
   game.start()
   stopNaturalSpawns(game)
-  game.state.coinsCollected = 49
+  game.state.coinsCollected = 29
   game.state.activePowerUps.magnetRemaining = 5
   const x = RUNNER.playerX + 118
   game.state.coins.push({ id: 1, x, y: RUNNER.groundY - 66, radius: 13, phase: 0, hitbox: { left: x - 13, right: x + 13, top: RUNNER.groundY - 79, bottom: RUNNER.groundY - 53 } })
   assert.ok(game.step(0.1).includes('coin'))
-  assert.equal(game.state.coinsCollected, 50)
+  assert.equal(game.state.coinsCollected, 30)
   assert.equal(game.state.evolutionLevel, 2)
+})
+
+test('every 50 collected coins starts a ten-second boss chase and a surviving chase drops a chest', () => {
+  const game = new RunnerSimulation(0, () => 0.5)
+  game.start(); stopNaturalSpawns(game)
+  game.state.coinsCollected = 49
+  const x = RUNNER.playerX + 48 + game.state.worldSpeed / 60
+  game.state.coins.push({ id: 1, x, y: RUNNER.groundY - 66, radius: 13, phase: 0, hitbox: { left: x - 13, right: x + 13, top: RUNNER.groundY - 79, bottom: RUNNER.groundY - 53 } })
+  assert.ok(game.step(1 / 60).includes('boss-start'))
+  assert.equal(game.state.bossesTriggered, 1)
+  assert.ok(game.state.bossRemaining > 9.9)
+
+  game.state.bossRemaining = 0.01
+  const events = game.step(1 / 60)
+  assert.ok(events.includes('boss-win'))
+  assert.ok(game.state.powerUps.some(item => item.type === 'chest'))
+})
+
+test('a chest grants flight, whose held and released controls raise and lower the runner', () => {
+  const game = new RunnerSimulation(0, () => 0.1)
+  game.start(); stopNaturalSpawns(game)
+  const x = RUNNER.playerX + 48 + game.state.worldSpeed / 60
+  game.state.powerUps.push(powerUp('chest', 1, x, RUNNER.groundY - 66))
+  const events = game.step(1 / 60)
+  assert.ok(events.includes('powerup-flight'))
+  assert.equal(game.state.activePowerUps.flightRemaining, 8)
+  game.setFlightHeld(true)
+  game.step(0.1)
+  const highPoint = game.state.jumpHeight
+  assert.ok(highPoint > 0)
+  game.setFlightHeld(false)
+  game.step(0.1)
+  assert.ok(game.state.jumpHeight < highPoint)
+})
+
+test('mushroom size doubles the hitbox and breaks wooden boxes for bonus points', () => {
+  const normal = playerHitbox(0)
+  const giant = playerHitbox(0, false, true)
+  assert.equal(giant.right - giant.left, (normal.right - normal.left) * 2)
+  const game = new RunnerSimulation(0, () => 0.5)
+  game.start(); stopNaturalSpawns(game)
+  game.state.activePowerUps.mushroomRemaining = 6
+  game.state.obstacles.push({ id: 1, kind: 'small-box', x: RUNNER.playerX + 55 + game.state.worldSpeed / 60, width: 46, height: 38, passed: false })
+  const events = game.step(1 / 60)
+  assert.ok(events.includes('mushroom-smash'))
+  assert.equal(game.state.obstacles.length, 0)
+  assert.equal(game.state.bonusScore, 50)
+})
+
+test('run minute and one-health minute awards each trigger once', () => {
+  const game = new RunnerSimulation(0, () => 0.5)
+  game.start(); stopNaturalSpawns(game)
+  game.state.elapsed = 59.99
+  game.state.health = 1
+  game.state.lowHealthElapsed = 59.99
+  const events = game.step(0.02)
+  assert.ok(events.includes('run-minute'))
+  assert.ok(events.includes('achievement-tough'))
+  assert.equal(game.step(0.1).includes('run-minute'), false)
+  assert.equal(game.step(0.1).includes('achievement-tough'), false)
+})
+
+test('30 coins in the ten-second window and ten consecutive double-jumps unlock their rewards', () => {
+  const rich = new RunnerSimulation(0, () => 0.5)
+  rich.start(); stopNaturalSpawns(rich)
+  const x = RUNNER.playerX + 48 + rich.state.worldSpeed / 60
+  rich.state.coins = Array.from({ length: 30 }, (_, id) => ({ id, x, y: RUNNER.groundY - 66, radius: 13, phase: 0, hitbox: { left: x - 13, right: x + 13, top: RUNNER.groundY - 79, bottom: RUNNER.groundY - 53 } }))
+  assert.ok(rich.step(1 / 60).includes('achievement-rich'))
+
+  const jumper = new RunnerSimulation(0, () => 0.5)
+  jumper.start(); stopNaturalSpawns(jumper)
+  for (let count = 0; count < 10; count++) {
+    jumper.state.onGround = false
+    jumper.state.jumpsUsed = 1
+    jumper.state.jumpHeight = 100
+    jumper.state.doubleJumpedThisAir = false
+    assert.equal(jumper.jump(), 'double-jump')
+    jumper.state.jumpHeight = 1
+    jumper.state.verticalSpeed = -100
+    const events = jumper.step(0.1)
+    if (count === 9) assert.ok(events.includes('title-aerial'))
+  }
+})
+
+test('three actual collisions unlock the backwards message even when the third hit ends the run', () => {
+  const game = new RunnerSimulation(0, () => 0.5)
+  game.start(); stopNaturalSpawns(game)
+  let thirdHitEvents = []
+  for (let hit = 0; hit < 3; hit++) {
+    game.state.invulnerabilityRemaining = 0
+    game.state.obstacles = [{ id: hit + 1, kind: 'small-box', x: RUNNER.playerX + 10 + game.state.worldSpeed / 60, width: 46, height: 38, passed: false }]
+    thirdHitEvents = game.step(1 / 60)
+  }
+  assert.ok(thirdHitEvents.includes('achievement-backwards'))
+  assert.equal(game.state.status, 'game-over')
 })
 
 test('heart pickup caps at three, while a full-health pickup becomes a score bonus', () => {

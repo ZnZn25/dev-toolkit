@@ -20,6 +20,7 @@ export function renderRunner(ctx: CanvasRenderingContext2D, state: RunnerState, 
   drawClouds(ctx, state.distance, width)
   drawHills(ctx, state.distance, width)
   drawGround(ctx, state.distance, width)
+  if (state.bossRemaining > 0) drawBoss(ctx, state.bossX, RUNNER.groundY, state.elapsed)
   for (const obstacle of state.obstacles) drawObstacle(ctx, obstacle)
   drawCoins(ctx, state)
   for (const item of state.powerUps) drawPowerUp(ctx, item.type, item.x, item.y, state.elapsed)
@@ -58,7 +59,7 @@ function drawCoins(ctx: CanvasRenderingContext2D, state: RunnerState): void {
 }
 
 function drawPowerUp(ctx: CanvasRenderingContext2D, type: string, x: number, y: number, elapsed: number): void {
-  const colors: Record<string, string> = { shield: '#eeb94e', slow: '#5daee8', magnet: '#e76566', dash: '#e5a743', heart: '#eb6676' }
+  const colors: Record<string, string> = { shield: '#eeb94e', slow: '#5daee8', magnet: '#e76566', dash: '#e5a743', heart: '#eb6676', chest: '#c8863b', flight: '#58bfe5', mushroom: '#df5c52' }
   const bob = Math.sin(elapsed * 4 + x * 0.03) * 3
   ctx.save()
   ctx.translate(x, y + bob)
@@ -66,13 +67,30 @@ function drawPowerUp(ctx: CanvasRenderingContext2D, type: string, x: number, y: 
   ctx.shadowBlur = 13
   ctx.fillStyle = '#fffaf0'
   ctx.beginPath()
-  ctx.arc(0, 0, 20, 0, TAU)
+  if (type === 'chest') ctx.roundRect(-21, -16, 42, 34, 6)
+  else ctx.arc(0, 0, 20, 0, TAU)
   ctx.fill()
   ctx.shadowBlur = 0
   ctx.fillStyle = colors[type] ?? '#888'
   ctx.strokeStyle = '#fff'
   ctx.lineWidth = 2
-  if (type === 'heart') drawHeartGlyph(ctx)
+  if (type === 'chest') {
+    ctx.fillStyle = '#bc7732'; ctx.strokeStyle = '#8e572d'; ctx.lineWidth = 2.5
+    ctx.beginPath(); ctx.roundRect(-16, -10, 32, 23, 4); ctx.fill(); ctx.stroke()
+    ctx.fillStyle = '#f2c75d'; ctx.fillRect(-3, -8, 6, 20); ctx.fillRect(-17, -3, 34, 4)
+    ctx.fillStyle = '#fff0a5'; ctx.beginPath(); ctx.arc(0, -1, 2, 0, TAU); ctx.fill()
+  }
+  else if (type === 'mushroom') {
+    ctx.fillStyle = '#f0d5a0'; ctx.beginPath(); ctx.roundRect(-5, -2, 10, 15, 4); ctx.fill()
+    ctx.fillStyle = '#e45c50'; ctx.strokeStyle = '#a63e41'; ctx.lineWidth = 2
+    ctx.beginPath(); ctx.ellipse(0, -3, 14, 10, 0, Math.PI, TAU); ctx.lineTo(14, -2); ctx.quadraticCurveTo(0, 4, -14, -2); ctx.closePath(); ctx.fill(); ctx.stroke()
+    ctx.fillStyle = '#fff3dc'; ctx.beginPath(); ctx.arc(-6, -7, 3, 0, TAU); ctx.arc(5, -8, 3, 0, TAU); ctx.fill()
+  }
+  else if (type === 'flight') {
+    ctx.fillStyle = '#58bfe5'; ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(12, 11); ctx.lineTo(0, 6); ctx.lineTo(-12, 11); ctx.closePath(); ctx.fill()
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, 7); ctx.lineTo(0, -9); ctx.moveTo(0, -1); ctx.lineTo(-6, -6); ctx.moveTo(0, -1); ctx.lineTo(6, -6); ctx.stroke()
+  }
+  else if (type === 'heart') drawHeartGlyph(ctx)
   else if (type === 'shield') {
     ctx.beginPath()
     ctx.moveTo(0, -13); ctx.lineTo(12, -8); ctx.lineTo(10, 4); ctx.quadraticCurveTo(7, 11, 0, 14); ctx.quadraticCurveTo(-7, 11, -10, 4); ctx.lineTo(-12, -8); ctx.closePath()
@@ -107,6 +125,20 @@ function drawHeartGlyph(ctx: CanvasRenderingContext2D): void {
   ctx.moveTo(0, 12); ctx.bezierCurveTo(-17, 2, -10, -12, -2, -8); ctx.quadraticCurveTo(0, -7, 0, -3); ctx.quadraticCurveTo(7, -15, 14, -7); ctx.bezierCurveTo(21, 2, 9, 10, 0, 12); ctx.fill()
 }
 
+function drawBoss(ctx: CanvasRenderingContext2D, x: number, groundY: number, elapsed: number): void {
+  const y = groundY - 78 + Math.sin(elapsed * 3) * 5
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.shadowColor = '#7d476b'; ctx.shadowBlur = 16
+  ctx.fillStyle = '#68445d'; ctx.beginPath(); ctx.ellipse(59, 31, 54, 38, -0.08, 0, TAU); ctx.fill()
+  ctx.shadowBlur = 0
+  ctx.fillStyle = '#826078'; ctx.beginPath(); ctx.ellipse(18, 8, 28, 24, -0.2, 0, TAU); ctx.fill()
+  ctx.fillStyle = '#302637'; ctx.beginPath(); ctx.moveTo(5, -5); ctx.lineTo(8, -28); ctx.lineTo(25, -15); ctx.lineTo(37, -31); ctx.lineTo(43, -7); ctx.closePath(); ctx.fill()
+  ctx.fillStyle = '#f4ce71'; ctx.beginPath(); ctx.arc(17, 5, 4, 0, TAU); ctx.arc(32, 2, 4, 0, TAU); ctx.fill()
+  ctx.strokeStyle = '#e59d83'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(93, 41); ctx.quadraticCurveTo(126, 42, 121, 13); ctx.stroke()
+  ctx.restore()
+}
+
 function drawPowerEffects(ctx: CanvasRenderingContext2D, state: RunnerState, reduced: boolean): void {
   const centerX = RUNNER.playerX + 51
   const centerY = RUNNER.groundY - state.jumpHeight - 82
@@ -129,6 +161,18 @@ function drawPowerEffects(ctx: CanvasRenderingContext2D, state: RunnerState, red
     ctx.fillStyle = 'rgba(255,224,137,.12)'
     ctx.lineWidth = reduced ? 2 : 3
     ctx.beginPath(); ctx.ellipse(centerX, centerY, 59, 74, 0, 0, TAU); ctx.fill(); ctx.stroke()
+    ctx.restore()
+  }
+  if (state.activePowerUps.flightRemaining > 0) {
+    ctx.save()
+    ctx.strokeStyle = 'rgba(109,224,255,.9)'; ctx.fillStyle = 'rgba(109,224,255,.12)'; ctx.lineWidth = reduced ? 2 : 3
+    ctx.beginPath(); ctx.ellipse(centerX, centerY, 63, 81, 0, 0, TAU); ctx.fill(); ctx.stroke()
+    ctx.restore()
+  }
+  if (state.activePowerUps.mushroomRemaining > 0) {
+    ctx.save()
+    ctx.strokeStyle = 'rgba(255,105,92,.85)'; ctx.lineWidth = reduced ? 2 : 3
+    ctx.setLineDash([7, 5]); ctx.beginPath(); ctx.ellipse(centerX + 8, centerY - 25, 80, 145, 0, 0, TAU); ctx.stroke()
     ctx.restore()
   }
 }
@@ -358,6 +402,7 @@ function drawRunner(ctx: CanvasRenderingContext2D, state: RunnerState, effects: 
   ctx.ellipse(RUNNER.playerX + 48, RUNNER.groundY - 2, 43 * shadowScale, 7 * shadowScale, 0, 0, TAU)
   ctx.fill()
   ctx.translate(RUNNER.playerX + 7, RUNNER.groundY - state.jumpHeight - bob)
+  if (state.activePowerUps.mushroomRemaining > 0) ctx.scale(2, 2)
   if (state.sliding) ctx.scale(1, 0.36)
   if (lean) ctx.rotate(lean)
   if (state.doubleJumpRemaining > 0) {

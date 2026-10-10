@@ -3,7 +3,7 @@ import { evolutionLevelForCoins, type RunnerEvolutionLevel } from './runner-evol
 
 export type RunnerStatus = 'ready' | 'running' | 'paused' | 'game-over'
 export type ObstacleKind = 'small-box' | 'large-box' | 'roadblock' | 'tire-stack' | 'overhead-bar'
-export type RunnerEvent = 'jump' | 'double-jump' | 'land' | 'passed' | 'collision' | 'new-record' | 'coin' | 'shield-break' | 'dash-block' | `powerup-${PowerUpType}` | `evolution-${2 | 3 | 4 | 5}`
+export type RunnerEvent = 'jump' | 'double-jump' | 'land' | 'passed' | 'collision' | 'new-record' | 'coin' | 'shield-break' | 'dash-block' | 'mushroom-smash' | 'boss-start' | 'boss-win' | 'achievement-backwards' | 'achievement-rich' | 'title-aerial' | 'achievement-tough' | 'run-minute' | `powerup-${PowerUpType}` | `evolution-${2 | 3 | 4 | 5}`
 export type RunnerParticleKind = 'takeoff' | 'double-jump' | 'landing' | 'hit' | 'shield-break' | 'collect' | 'dash' | 'heart' | 'evolution'
 export type RunnerParticle = { kind: RunnerParticleKind; x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number }
 
@@ -55,6 +55,7 @@ export type RunnerState = {
   evolutionLevel: RunnerEvolutionLevel
   highestEvolutionLevel: RunnerEvolutionLevel
   evolutionRemaining: number
+  cosmicRemaining: number
   coins: RunnerCoin[]
   powerUps: RunnerPowerUp[]
   activePowerUps: ActivePowerUps
@@ -64,15 +65,31 @@ export type RunnerState = {
   jumpsUsed: number
   glideHeld: boolean
   gliding: boolean
+  flightHeld: boolean
   slideHeld: boolean
   sliding: boolean
   doubleJumpRemaining: number
+  doubleJumpStreak: number
+  doubleJumpedThisAir: boolean
   obstacles: RunnerObstacle[]
   particles: RunnerParticle[]
   spawnDistance: number
   itemSpawnDistance: number
   impactRemaining: number
   newRecordThisRun: boolean
+  bossRemaining: number
+  bossAttackRemaining: number
+  bossX: number
+  bossesQueued: number
+  bossesTriggered: number
+  collisionStreak: number
+  coinWindowRemaining: number
+  coinWindowCollected: number
+  lowHealthElapsed: number
+  lowHealthEarned: boolean
+  runMinuteEarned: boolean
+  backwardsEarned: boolean
+  aerialTitleEarned: boolean
 }
 
 export type GameRect = { left: number; right: number; top: number; bottom: number }
@@ -99,13 +116,15 @@ export function intersects(a: GameRect, b: GameRect): boolean {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
 }
 
-export function playerHitbox(jumpHeight: number, sliding = false): GameRect {
-  const bodyHeight = sliding ? RUNNER.slideHeight : RUNNER.playerHeight
+export function playerHitbox(jumpHeight: number, sliding = false, mushroomActive = false): GameRect {
+  const scale = mushroomActive ? 2 : 1
+  const bodyHeight = (sliding ? RUNNER.slideHeight : RUNNER.playerHeight) * scale
+  const halfWidth = (RUNNER.playerWidth - 34) * scale / 2
   return {
-    left: RUNNER.playerX + 20,
-    right: RUNNER.playerX + RUNNER.playerWidth - 14,
-    top: RUNNER.groundY - bodyHeight - jumpHeight + (sliding ? 8 : 13),
-    bottom: RUNNER.groundY - jumpHeight - 7,
+    left: RUNNER.playerX + 48 - halfWidth,
+    right: RUNNER.playerX + 48 + halfWidth,
+    top: RUNNER.groundY - bodyHeight - jumpHeight + (sliding ? 8 : 13 * scale),
+    bottom: RUNNER.groundY - jumpHeight - 7 * scale,
   }
 }
 
@@ -140,24 +159,41 @@ function initialState(bestScore: number, lifetimeCoins = 0, highestEvolutionLeve
     evolutionLevel: 1,
     highestEvolutionLevel,
     evolutionRemaining: 0,
+    cosmicRemaining: 0,
     coins: [],
     powerUps: [],
-    activePowerUps: { shield: false, slowRemaining: 0, magnetRemaining: 0, dashRemaining: 0 },
+    activePowerUps: { shield: false, slowRemaining: 0, magnetRemaining: 0, dashRemaining: 0, flightRemaining: 0, mushroomRemaining: 0 },
     jumpHeight: 0,
     verticalSpeed: 0,
     onGround: true,
     jumpsUsed: 0,
     glideHeld: false,
     gliding: false,
+    flightHeld: false,
     slideHeld: false,
     sliding: false,
     doubleJumpRemaining: 0,
+    doubleJumpStreak: 0,
+    doubleJumpedThisAir: false,
     obstacles: [],
     particles: [],
     spawnDistance: RUNNER.initialSpeed * 1.8,
     itemSpawnDistance: RUNNER.initialSpeed * 1.3,
     impactRemaining: 0,
     newRecordThisRun: false,
+    bossRemaining: 0,
+    bossAttackRemaining: 0,
+    bossX: 0,
+    bossesQueued: 0,
+    bossesTriggered: 0,
+    collisionStreak: 0,
+    coinWindowRemaining: 0,
+    coinWindowCollected: 0,
+    lowHealthElapsed: 0,
+    lowHealthEarned: false,
+    runMinuteEarned: false,
+    backwardsEarned: false,
+    aerialTitleEarned: false,
   }
 }
 
@@ -185,6 +221,7 @@ export class RunnerSimulation {
     if (this.state.status === 'running') {
       this.state.status = 'paused'
       this.setGlideHeld(false)
+      this.setFlightHeld(false)
       this.setSlideHeld(false)
     }
   }
@@ -207,23 +244,30 @@ export class RunnerSimulation {
     if (!this.state.glideHeld) this.state.gliding = false
   }
 
+  setFlightHeld(held: boolean): void {
+    this.state.flightHeld = held && this.state.status === 'running' && this.state.activePowerUps.flightRemaining > 0
+  }
+
   setSlideHeld(held: boolean): void {
     this.state.slideHeld = held && this.state.status === 'running'
     this.state.sliding = this.state.slideHeld && this.state.onGround
   }
 
   jump(): 'jump' | 'double-jump' | false {
-    if (this.state.status !== 'running' || this.state.jumpsUsed >= 2) return false
+    if (this.state.status !== 'running' || this.state.activePowerUps.flightRemaining > 0 || this.state.jumpsUsed >= 2) return false
     const doubleJump = this.state.jumpsUsed === 1 && !this.state.onGround
     this.state.verticalSpeed = doubleJump ? RUNNER.jumpVelocity * 0.8 : RUNNER.jumpVelocity
     this.state.onGround = false
     this.state.sliding = false
     this.state.jumpsUsed++
     if (doubleJump) {
+      this.state.doubleJumpedThisAir = true
+      this.state.doubleJumpStreak++
       this.state.doubleJumpRemaining = 0.42
       this.emitParticles('double-jump', 14, RUNNER.playerX + 48, RUNNER.groundY - this.state.jumpHeight - 66)
       return 'double-jump'
     }
+    this.state.doubleJumpedThisAir = false
     this.emitParticles('takeoff', 7, RUNNER.playerX + 48, RUNNER.groundY - 3)
     return 'jump'
   }
@@ -242,6 +286,7 @@ export class RunnerSimulation {
     const wasAirborne = !this.state.onGround
     this.state.elapsed += dt
     this.state.evolutionRemaining = Math.max(0, this.state.evolutionRemaining - dt)
+    this.state.cosmicRemaining = Math.max(0, this.state.cosmicRemaining - dt)
     this.state.doubleJumpRemaining = Math.max(0, this.state.doubleJumpRemaining - dt)
     this.state.invulnerabilityRemaining = Math.max(0, this.state.invulnerabilityRemaining - dt)
     this.state.hitFlashRemaining = Math.max(0, this.state.hitFlashRemaining - dt)
@@ -252,25 +297,57 @@ export class RunnerSimulation {
     const startSpeed = speedForScore(progressionScore)
     this.state.speed = speedForScore(progressionScore + startSpeed * worldScale * scoreRateScale * dt / 44)
     this.state.worldSpeed = this.state.speed * worldScale
+    PowerUpManager.step(this.state.powerUps, this.state.activePowerUps, dt, this.state.worldSpeed)
+    if (!this.state.runMinuteEarned && this.state.elapsed >= 60) {
+      this.state.runMinuteEarned = true
+      events.push('run-minute')
+    }
+    if (this.state.health === 1) {
+      this.state.lowHealthElapsed += dt
+      if (!this.state.lowHealthEarned && this.state.lowHealthElapsed >= 60) {
+        this.state.lowHealthEarned = true
+        events.push('achievement-tough')
+      }
+    }
+    else this.state.lowHealthElapsed = 0
+    if (this.state.doubleJumpStreak >= 10 && !this.state.aerialTitleEarned) {
+      this.state.aerialTitleEarned = true
+      events.push('title-aerial')
+    }
+    this.state.coinWindowRemaining = Math.max(0, this.state.coinWindowRemaining - dt)
+    if (this.state.coinWindowRemaining === 0) this.state.coinWindowCollected = 0
+    this.stepBoss(dt, events)
     this.state.distance += this.state.worldSpeed * dt
     this.state.distanceScore += this.state.worldSpeed * dt / 22 * (dashActive ? 1.5 : 1)
-    this.state.gliding = this.state.glideHeld && wasAirborne && this.state.verticalSpeed <= 0
-    const gravity = RUNNER.gravity * (this.state.gliding ? RUNNER.glideGravityScale : 1)
-    this.state.verticalSpeed = this.state.gliding
-      ? Math.max(-RUNNER.glideFallSpeed, this.state.verticalSpeed - gravity * dt)
-      : this.state.verticalSpeed - gravity * dt
+    if (this.state.activePowerUps.flightRemaining > 0) {
+      this.state.flightHeld = this.state.flightHeld && this.state.status === 'running'
+      this.state.gliding = false
+      this.state.verticalSpeed = this.state.flightHeld ? 390 : -310
+    }
+    else {
+      this.state.flightHeld = false
+      this.state.gliding = this.state.glideHeld && wasAirborne && this.state.verticalSpeed <= 0
+      const gravity = RUNNER.gravity * (this.state.gliding ? RUNNER.glideGravityScale : 1)
+      this.state.verticalSpeed = this.state.gliding
+        ? Math.max(-RUNNER.glideFallSpeed, this.state.verticalSpeed - gravity * dt)
+        : this.state.verticalSpeed - gravity * dt
+    }
     this.state.jumpHeight += this.state.verticalSpeed * dt
+    this.state.jumpHeight = Math.min(250, this.state.jumpHeight)
     if (this.state.jumpHeight <= 0) {
       this.state.jumpHeight = 0
       this.state.verticalSpeed = 0
       this.state.onGround = true
       this.state.gliding = false
       if (wasAirborne) {
+        if (!this.state.doubleJumpedThisAir) this.state.doubleJumpStreak = 0
+        this.state.doubleJumpedThisAir = false
         this.state.jumpsUsed = 0
         this.emitParticles('landing', 7, RUNNER.playerX + 48, RUNNER.groundY - 2)
         events.push('land')
       }
     }
+    else this.state.onGround = false
     this.state.sliding = this.state.slideHeld && this.state.onGround
     this.updateParticles(dt)
 
@@ -278,23 +355,40 @@ export class RunnerSimulation {
     this.state.spawnDistance -= this.state.worldSpeed * dt
     if (this.state.spawnDistance <= 0) this.spawnObstacle()
 
-    PowerUpManager.step(this.state.powerUps, this.state.activePowerUps, dt, this.state.worldSpeed)
     CoinManager.step(this.state.coins, dt, this.state.worldSpeed, RUNNER.playerX + 48, RUNNER.groundY - this.state.jumpHeight - 66, this.state.activePowerUps.magnetRemaining > 0)
     this.state.itemSpawnDistance -= this.state.worldSpeed * dt
     if (this.state.itemSpawnDistance <= 0) this.spawnCollectible()
 
-    const playerBox = playerHitbox(this.state.jumpHeight, this.state.sliding)
+    const mushroomActive = this.state.activePowerUps.mushroomRemaining > 0
+    const playerBox = playerHitbox(this.state.jumpHeight, this.state.sliding, mushroomActive)
     const collectedCoins = CoinManager.collect(this.state.coins, playerBox)
     if (collectedCoins > 0) {
       this.state.coinsCollected += collectedCoins
       this.state.lifetimeCoins += collectedCoins
+      if (this.state.coinWindowRemaining <= 0) {
+        this.state.coinWindowCollected = 0
+        this.state.coinWindowRemaining = 10
+      }
+      this.state.coinWindowCollected += collectedCoins
+      if (this.state.coinWindowCollected >= 30) {
+        this.state.coinWindowCollected = 0
+        this.state.coinWindowRemaining = 0
+        events.push('achievement-rich')
+      }
       const nextLevel = evolutionLevelForCoins(this.state.coinsCollected)
       if (nextLevel > this.state.evolutionLevel) {
         this.state.evolutionLevel = nextLevel
         this.state.highestEvolutionLevel = Math.max(this.state.highestEvolutionLevel, nextLevel) as RunnerEvolutionLevel
         this.state.evolutionRemaining = 2.4
+        if (nextLevel === 5) this.state.cosmicRemaining = 4
         this.emitParticles('evolution', 24, RUNNER.playerX + 48, RUNNER.groundY - this.state.jumpHeight - 66)
         events.push(`evolution-${nextLevel}` as RunnerEvent)
+      }
+      const reachedBosses = Math.floor(this.state.coinsCollected / 50)
+      while (this.state.bossesTriggered < reachedBosses) {
+        this.state.bossesTriggered++
+        if (this.state.bossRemaining > 0) this.state.bossesQueued++
+        else this.startBoss(events)
       }
       this.emitParticles('collect', Math.min(12, collectedCoins * 4), RUNNER.playerX + 48, RUNNER.groundY - this.state.jumpHeight - 66)
       events.push('coin')
@@ -303,14 +397,27 @@ export class RunnerSimulation {
     this.state.health = collected.health
     this.state.bonusScore += collected.scoreBonus
     for (const type of collected.types) {
+      if (type === 'chest') {
+        const reward: PowerUpType = this.random() < 0.5 ? 'flight' : 'mushroom'
+        if (reward === 'flight') this.state.activePowerUps.flightRemaining = 8
+        else this.state.activePowerUps.mushroomRemaining = 6
+        events.push('powerup-chest', `powerup-${reward}`)
+      }
       this.emitParticles(type === 'heart' ? 'heart' : 'collect', type === 'heart' ? 12 : 8, RUNNER.playerX + 48, RUNNER.groundY - this.state.jumpHeight - 66)
-      events.push(`powerup-${type}`)
+      if (type !== 'chest') events.push(`powerup-${type}`)
     }
 
     for (let index = this.state.obstacles.length - 1; index >= 0; index--) {
       const obstacle = this.state.obstacles[index]
       if (!obstacle.collisionHandled && intersects(playerBox, obstacleHitbox(obstacle))) {
         obstacle.collisionHandled = true
+        if (mushroomActive && (obstacle.kind === 'small-box' || obstacle.kind === 'large-box')) {
+          this.state.obstacles.splice(index, 1)
+          this.state.bonusScore += 50
+          this.emitParticles('collect', 10, obstacle.x + obstacle.width / 2, RUNNER.groundY - obstacle.height / 2)
+          events.push('mushroom-smash')
+          continue
+        }
         if (this.state.activePowerUps.dashRemaining > 0) {
           events.push('dash-block')
         }
@@ -321,9 +428,14 @@ export class RunnerSimulation {
         }
         else if (this.state.invulnerabilityRemaining <= 0) {
           this.state.health = Math.max(0, this.state.health - 1)
+          this.state.collisionStreak++
           this.state.hitFlashRemaining = 0.36
           this.emitParticles('hit', 9, RUNNER.playerX + 48, RUNNER.groundY - this.state.jumpHeight - 72)
           events.push('collision')
+          if (this.state.collisionStreak >= 3 && !this.state.backwardsEarned) {
+            this.state.backwardsEarned = true
+            events.push('achievement-backwards')
+          }
           if (this.state.health === 0) {
             this.state.status = 'game-over'
             this.setGlideHeld(false)
@@ -332,6 +444,8 @@ export class RunnerSimulation {
             this.state.impactRemaining = 0.28
             PowerUpManager.clear(this.state.powerUps, this.state.activePowerUps)
             CoinManager.clear(this.state.coins)
+            this.state.bossRemaining = 0
+            this.state.bossesQueued = 0
             break
           }
           this.state.invulnerabilityRemaining = 1.5
@@ -355,6 +469,35 @@ export class RunnerSimulation {
       }
     }
     return events
+  }
+
+  private startBoss(events: RunnerEvent[]): void {
+    this.state.bossRemaining = 10
+    this.state.bossAttackRemaining = 0.85
+    this.state.bossX = this.state.viewWidth - 145
+    events.push('boss-start')
+  }
+
+  private stepBoss(dt: number, events: RunnerEvent[]): void {
+    if (this.state.bossRemaining > 0) {
+      this.state.bossRemaining = Math.max(0, this.state.bossRemaining - dt)
+      this.state.bossX = Math.max(RUNNER.playerX + 250, this.state.bossX - this.state.worldSpeed * 0.34 * dt)
+      this.state.bossAttackRemaining -= dt
+      if (this.state.bossAttackRemaining <= 0 && this.state.bossRemaining > 0) {
+        this.state.obstacles.push({ id: this.nextObstacleId++, kind: 'small-box', x: this.state.bossX - 54, width: OBSTACLE_SIZE['small-box'].width, height: OBSTACLE_SIZE['small-box'].height, passed: false })
+        this.state.bossAttackRemaining = 1.45
+      }
+      if (this.state.bossRemaining === 0) {
+        const info = { id: this.nextItemId++, type: 'chest' as const, x: RUNNER.playerX + 255, y: RUNNER.groundY - 43, width: 38, height: 36, hitbox: { left: 0, right: 0, top: 0, bottom: 0 }, duration: 0, effect: 'treasure' as const, pickupSound: 'chest' as const, status: 'available' as const }
+        info.hitbox = { left: info.x - info.width / 2, right: info.x + info.width / 2, top: info.y - info.height / 2, bottom: info.y + info.height / 2 }
+        this.state.powerUps.push(info)
+        events.push('boss-win')
+      }
+    }
+    if (this.state.bossRemaining === 0 && this.state.bossesQueued > 0 && this.state.status === 'running') {
+      this.state.bossesQueued--
+      this.startBoss(events)
+    }
   }
 
   private spawnObstacle(): void {

@@ -9,6 +9,18 @@ import { loadRunnerBestScore, loadRunnerEvolutionRecord, saveRunnerBestScore, sa
 const props = defineProps<{ active: boolean; theme: 'dark' | 'light'; effects: 'full' | 'reduced' | 'off' }>()
 const STEP = 1 / 60
 const MAX_FRAME_SECONDS = 0.1
+const RUNNER_EVENT_MESSAGES: Partial<Record<RunnerEvent, string>> = {
+  'boss-start': 'Boss追逐开始！坚持 10 秒拿宝箱',
+  'boss-win': '追逐成功！宝箱出现了',
+  'achievement-backwards': '杨远航，你跑反了吧！',
+  'achievement-rich': '杨远航发财啦！',
+  'title-aerial': '称号解锁：空中飞人',
+  'achievement-tough': '成就解锁：命真硬',
+  'run-minute': '杨远航，休息一下吧！',
+  'powerup-flight': '宝箱奖励：飞行能力 8 秒',
+  'powerup-mushroom': '宝箱奖励：蘑菇巨人 6 秒',
+  'evolution-5': '终极宇宙形态进化！',
+}
 
 const savedEvolution = loadRunnerEvolutionRecord()
 const simulation = new RunnerSimulation(loadRunnerBestScore(), Math.random, savedEvolution)
@@ -23,10 +35,14 @@ const ui = reactive({
   evolutionLevel: simulation.state.evolutionLevel,
   highestEvolutionLevel: simulation.state.highestEvolutionLevel,
   evolutionRemaining: simulation.state.evolutionRemaining,
+  cosmicRemaining: simulation.state.cosmicRemaining,
   shield: simulation.state.activePowerUps.shield,
   slowRemaining: simulation.state.activePowerUps.slowRemaining,
   magnetRemaining: simulation.state.activePowerUps.magnetRemaining,
   dashRemaining: simulation.state.activePowerUps.dashRemaining,
+  flightRemaining: simulation.state.activePowerUps.flightRemaining,
+  mushroomRemaining: simulation.state.activePowerUps.mushroomRemaining,
+  bossRemaining: simulation.state.bossRemaining,
   elapsed: simulation.state.elapsed,
   speed: simulation.state.speed,
 })
@@ -56,7 +72,10 @@ const activeEffects = computed(() => [
   { key: 'slow', icon: '❄', label: '减速', remaining: ui.slowRemaining, progress: ui.slowRemaining / 5 },
   { key: 'magnet', icon: '🧲', label: '磁铁', remaining: ui.magnetRemaining, progress: ui.magnetRemaining / 8 },
   { key: 'dash', icon: '⚡', label: '冲刺', remaining: ui.dashRemaining, progress: ui.dashRemaining / 4 },
+  { key: 'flight', icon: '🪽', label: '飞行', remaining: ui.flightRemaining, progress: ui.flightRemaining / 8 },
+  { key: 'mushroom', icon: '🍄', label: '蘑菇巨人', remaining: ui.mushroomRemaining, progress: ui.mushroomRemaining / 6 },
 ].filter(effect => Boolean(effect.remaining)))
+const notice = ref('')
 
 let animationFrame = 0
 let lastFrameTime = 0
@@ -66,6 +85,7 @@ let saveTimer: number | undefined
 let savedBestScore = simulation.state.bestScore
 let savedLifetimeCoins = simulation.state.lifetimeCoins
 let savedHighestEvolutionLevel = simulation.state.highestEvolutionLevel
+let noticeTimer: number | undefined
 let spaceHeld = false
 let ctrlHeld = false
 
@@ -80,10 +100,14 @@ function syncUi(): void {
   ui.evolutionLevel = simulation.state.evolutionLevel
   ui.highestEvolutionLevel = simulation.state.highestEvolutionLevel
   ui.evolutionRemaining = simulation.state.evolutionRemaining
+  ui.cosmicRemaining = simulation.state.cosmicRemaining
   ui.shield = simulation.state.activePowerUps.shield
   ui.slowRemaining = simulation.state.activePowerUps.slowRemaining
   ui.magnetRemaining = simulation.state.activePowerUps.magnetRemaining
   ui.dashRemaining = simulation.state.activePowerUps.dashRemaining
+  ui.flightRemaining = simulation.state.activePowerUps.flightRemaining
+  ui.mushroomRemaining = simulation.state.activePowerUps.mushroomRemaining
+  ui.bossRemaining = simulation.state.bossRemaining
   ui.elapsed = simulation.state.elapsed
   ui.speed = simulation.state.worldSpeed
 }
@@ -182,6 +206,12 @@ function stopAnimation(): void {
 function handleEvents(events: RunnerEvent[]): void {
   for (const event of events) audio.play(event)
   if (events.includes('coin')) scheduleRecordSave()
+  const message = [...events].reverse().map(event => RUNNER_EVENT_MESSAGES[event]).find(Boolean)
+  if (message) {
+    notice.value = message
+    if (noticeTimer !== undefined) window.clearTimeout(noticeTimer)
+    noticeTimer = window.setTimeout(() => { notice.value = '' }, 2800)
+  }
 }
 
 function refresh(): void {
@@ -213,6 +243,7 @@ function togglePause(): void {
   spaceHeld = false
   ctrlHeld = false
   simulation.setGlideHeld(false)
+  simulation.setFlightHeld(false)
   simulation.setSlideHeld(false)
   if (simulation.state.status === 'running') {
     simulation.pause()
@@ -248,6 +279,12 @@ function onStageKeydown(event: KeyboardEvent): void {
     if (simulation.state.status === 'ready') begin()
     else if (simulation.state.status === 'paused') togglePause()
     else if (simulation.state.status === 'running') {
+      if (simulation.state.activePowerUps.flightRemaining > 0) {
+        simulation.setFlightHeld(true)
+        refresh()
+        startAnimation()
+        return
+      }
       simulation.setGlideHeld(true)
       const jumpEvent = simulation.jump()
       if (!jumpEvent) return
@@ -279,6 +316,7 @@ function onWindowKeyup(event: KeyboardEvent): void {
   if (event.code === 'Space' || event.key === ' ') {
     spaceHeld = false
     simulation.setGlideHeld(false)
+    simulation.setFlightHeld(false)
   }
 }
 
@@ -292,6 +330,7 @@ function onWindowBlur(): void {
   spaceHeld = false
   ctrlHeld = false
   simulation.setGlideHeld(false)
+  simulation.setFlightHeld(false)
   simulation.setSlideHeld(false)
   if (simulation.state.status === 'running') {
     simulation.pause()
@@ -355,6 +394,7 @@ watch(() => props.active, (active) => {
     spaceHeld = false
     ctrlHeld = false
     simulation.setGlideHeld(false)
+    simulation.setFlightHeld(false)
     simulation.setSlideHeld(false)
     simulation.pause()
     stopAnimation()
@@ -382,6 +422,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   simulation.setGlideHeld(false)
+  simulation.setFlightHeld(false)
   simulation.setSlideHeld(false)
   stopAnimation()
   resizeObserver?.disconnect()
@@ -392,6 +433,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   window.removeEventListener('pageshow', onPageShow)
   if (saveTimer !== undefined) window.clearTimeout(saveTimer)
+  if (noticeTimer !== undefined) window.clearTimeout(noticeTimer)
   flushRecords()
   audio.dispose()
 })
@@ -427,8 +469,11 @@ onBeforeUnmount(() => {
     </header>
 
     <div class="runner-stage-wrap">
-      <div ref="stage" class="runner-stage" tabindex="0" role="application" aria-label="游戏区域。空格跳跃并可在下落时滑翔，Ctrl 下铲，P 暂停，R 重新开始，Esc 暂停" @keydown="onStageKeydown" @pointerdown="onStagePointerDown">
+      <div ref="stage" class="runner-stage" tabindex="0" role="application" aria-label="游戏区域。空格跳跃，获得飞行后按住空格上升并松开下降，Ctrl 下铲，P 暂停，R 重新开始，Esc 暂停" @keydown="onStageKeydown" @pointerdown="onStagePointerDown">
         <canvas ref="canvas" class="runner-canvas" aria-hidden="true"></canvas>
+        <div v-if="ui.bossRemaining > 0" class="runner-boss-meter" role="status"><strong>Boss 追逐</strong><span>坚持 {{ ui.bossRemaining.toFixed(1) }} 秒</span><i><b :style="{ width: `${Math.max(0, ui.bossRemaining / 10) * 100}%` }"></b></i></div>
+        <div v-if="notice" class="runner-notice" role="status" aria-live="polite">{{ notice }}</div>
+        <div v-if="ui.cosmicRemaining > 0" class="runner-cosmic-flash" aria-hidden="true"><strong>宇宙形态进化</strong></div>
         <div class="runner-evolution-panel" :class="{ 'is-evolving': ui.evolutionRemaining > 0 }" :style="{ '--evolution-color': evolutionAccent }" aria-live="polite">
           <div class="runner-evolution-heading"><strong>{{ currentEvolution.title }} Lv.{{ ui.evolutionLevel }}</strong><span v-if="ui.evolutionRemaining > 0">进化成功！</span></div>
           <div class="runner-evolution-track"><i :style="{ width: `${evolutionProgress * 100}%` }"></i></div>
@@ -442,7 +487,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div v-if="ui.status === 'ready'" class="runner-overlay">
-          <div class="runner-card"><span class="runner-card-mark" aria-hidden="true">跑</span><h1>杨远航快跑</h1><p>按空格键开始奔跑！</p><small>空中下落时按住空格可滑翔，按住 Ctrl 可下铲。</small><button class="runner-primary-button" type="button" @click="begin">开始奔跑</button></div>
+          <div class="runner-card"><span class="runner-card-mark" aria-hidden="true">跑</span><h1>杨远航快跑</h1><p>按空格键开始奔跑！</p><small>飞行时按住空格上升、松开下降；普通跳跃下落时按住空格可滑翔，Ctrl 下铲。</small><button class="runner-primary-button" type="button" @click="begin">开始奔跑</button></div>
         </div>
         <div v-else-if="ui.status === 'paused'" class="runner-overlay">
           <div class="runner-card"><span class="runner-card-mark" aria-hidden="true">Ⅱ</span><h2>休息一下</h2><p>杨远航正在原地喝口水。</p><small>按 P 或空格继续奔跑</small><button class="runner-primary-button" type="button" @click="togglePause">继续奔跑</button></div>
@@ -451,7 +496,7 @@ onBeforeUnmount(() => {
           <div class="runner-card"><span class="runner-card-mark" aria-hidden="true">✦</span><h2>杨远航撞上障碍物啦！</h2><p>本次得分：<strong>{{ ui.score.toLocaleString() }}</strong></p><small>按 R 或空格键重新开始</small><button class="runner-primary-button" type="button" @click="restart">再跑一次</button></div>
         </div>
       </div>
-      <div class="runner-footer"><span><i class="runner-status-dot" :class="'is-' + ui.status"></i>{{ statusLabel }}</span><span>空格跳跃/滑翔 <b>·</b> Ctrl 下铲 <b>·</b> P 暂停 <b>·</b> R 重开</span></div>
+      <div class="runner-footer"><span><i class="runner-status-dot" :class="'is-' + ui.status"></i>{{ statusLabel }}</span><span>空格跳跃/飞行 <b>·</b> Ctrl 下铲 <b>·</b> P 暂停 <b>·</b> R 重开</span></div>
     </div>
   </section>
 </template>
@@ -489,6 +534,17 @@ onBeforeUnmount(() => {
 .runner-stage-wrap { display: grid; grid-template-rows: minmax(0, 1fr) 23px; min-width: 0; min-height: 0; overflow: hidden; }
 .runner-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--line)); border-radius: 15px; outline: none; background: #b7e9ef; box-shadow: inset 0 1px 0 #ffffff35, 0 9px 28px #0002; }
 .runner-stage:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.runner-boss-meter { position: absolute; z-index: 2; top: 12px; left: 12px; display: grid; grid-template-columns: auto auto; align-items: center; gap: 5px 10px; min-width: 170px; padding: 9px 11px; border: 1px solid #e9879c; border-radius: 10px; color: #633244; background: #fff8f2e8; box-shadow: 0 3px 14px #63324424; pointer-events: none; }
+.runner-boss-meter strong { font-size: 11px; }.runner-boss-meter span { justify-self: end; font-size: 10px; font-variant-numeric: tabular-nums; }
+.runner-boss-meter i { grid-column: 1 / -1; height: 5px; overflow: hidden; border-radius: 99px; background: #efd8dd; }.runner-boss-meter b { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#e96b81,#9d4c82); transition: width .1s linear; }
+.runner-notice { position: absolute; z-index: 4; top: 70px; left: 50%; max-width: min(90%, 430px); padding: 10px 18px; transform: translateX(-50%); border: 1px solid #fff5; border-radius: 999px; color: #fff; background: #273848df; box-shadow: 0 6px 24px #17212a55; font-size: 13px; font-weight: 800; text-align: center; pointer-events: none; animation: runner-notice-in .22s ease-out; }
+.runner-cosmic-flash { position: absolute; z-index: 5; inset: 0; display: grid; place-items: center; overflow: hidden; background: radial-gradient(ellipse at center,#423170a8 0,#17152bce 45%,#0d1226ed 100%); pointer-events: none; animation: runner-cosmic-in .55s ease-out both; }
+.runner-cosmic-flash::before { position: absolute; inset: -50%; content: ''; background-image: radial-gradient(2px 2px at 20% 30%,#fff 55%,transparent 65%),radial-gradient(1px 1px at 74% 22%,#fff 55%,transparent 65%),radial-gradient(2px 2px at 48% 67%,#d8c4ff 55%,transparent 65%),radial-gradient(1px 1px at 87% 75%,#fff 55%,transparent 65%),radial-gradient(1px 1px at 33% 88%,#fff 55%,transparent 65%); background-size: 190px 160px; animation: runner-stars 8s linear infinite; }
+.runner-cosmic-flash strong { position: relative; color: #f1dcff; font-size: clamp(22px, 5vw, 44px); text-shadow: 0 0 9px #fff,0 0 28px #ad7fff; animation: runner-cosmic-title .75s ease-in-out infinite alternate; }
+@keyframes runner-notice-in { from { opacity: 0; transform: translate(-50%,-8px) scale(.96); } to { opacity: 1; transform: translate(-50%,0) scale(1); } }
+@keyframes runner-cosmic-in { 0% { opacity: 0; } 15% { opacity: 1; } 100% { opacity: .86; } }
+@keyframes runner-stars { to { transform: rotate(18deg) translateY(120px); } }
+@keyframes runner-cosmic-title { to { transform: scale(1.07); } }
 .runner-canvas { display: block; width: 100%; height: 100%; }
 .runner-evolution-panel { position: absolute; z-index: 1; top: 11px; right: 11px; display: flex; flex-direction: column; gap: 5px; width: min(248px, 43%); padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--evolution-color) 55%, #ffffff); border-radius: 10px; color: #293844; background: #ffffffd9; box-shadow: 0 3px 14px #253c4a1c; backdrop-filter: blur(5px); pointer-events: none; }
 .runner-evolution-panel.is-evolving { box-shadow: 0 0 20px color-mix(in srgb, var(--evolution-color) 68%, transparent); animation: runner-evolution-pulse .42s ease-in-out infinite alternate; }

@@ -1,6 +1,6 @@
-export type PowerUpType = 'shield' | 'slow' | 'magnet' | 'dash' | 'heart'
-export type PowerUpSound = 'shield' | 'slow' | 'magnet' | 'dash' | 'heart'
-export type PowerUpEffect = 'single-hit-shield' | 'world-slow' | 'coin-magnet' | 'dash-immunity' | 'heal'
+export type PowerUpType = 'shield' | 'slow' | 'magnet' | 'dash' | 'heart' | 'chest' | 'flight' | 'mushroom'
+export type PowerUpSound = PowerUpType
+export type PowerUpEffect = 'single-hit-shield' | 'world-slow' | 'coin-magnet' | 'dash-immunity' | 'heal' | 'treasure' | 'flight' | 'mushroom'
 export type ItemRect = { left: number; right: number; top: number; bottom: number }
 export type ItemObstacle = { x: number; width: number; height: number }
 export type RunnerCoin = { id: number; x: number; y: number; radius: number; phase: number; hitbox: ItemRect }
@@ -17,9 +17,9 @@ export type RunnerPowerUp = {
   pickupSound: PowerUpSound
   status: 'available' | 'collected'
 }
-export type ActivePowerUps = { shield: boolean; slowRemaining: number; magnetRemaining: number; dashRemaining: number }
+export type ActivePowerUps = { shield: boolean; slowRemaining: number; magnetRemaining: number; dashRemaining: number; flightRemaining: number; mushroomRemaining: number }
 
-export const ACTIVE_POWER_UPS: ActivePowerUps = { shield: false, slowRemaining: 0, magnetRemaining: 0, dashRemaining: 0 }
+export const ACTIVE_POWER_UPS: ActivePowerUps = { shield: false, slowRemaining: 0, magnetRemaining: 0, dashRemaining: 0, flightRemaining: 0, mushroomRemaining: 0 }
 
 export const POWER_UP_INFO: Record<PowerUpType, { label: string; duration: number; effect: PowerUpEffect; pickupSound: PowerUpSound }> = {
   shield: { label: '护盾', duration: 0, effect: 'single-hit-shield', pickupSound: 'shield' },
@@ -27,6 +27,9 @@ export const POWER_UP_INFO: Record<PowerUpType, { label: string; duration: numbe
   magnet: { label: '磁铁', duration: 8, effect: 'coin-magnet', pickupSound: 'magnet' },
   dash: { label: '冲刺', duration: 4, effect: 'dash-immunity', pickupSound: 'dash' },
   heart: { label: '生命恢复', duration: 0, effect: 'heal', pickupSound: 'heart' },
+  chest: { label: '宝箱', duration: 0, effect: 'treasure', pickupSound: 'chest' },
+  flight: { label: '飞行', duration: 8, effect: 'flight', pickupSound: 'flight' },
+  mushroom: { label: '特殊蘑菇', duration: 6, effect: 'mushroom', pickupSound: 'mushroom' },
 }
 
 function intersects(a: ItemRect, b: ItemRect): boolean {
@@ -125,6 +128,8 @@ export const PowerUpManager = {
     effects.slowRemaining = Math.max(0, effects.slowRemaining - deltaSeconds)
     effects.magnetRemaining = Math.max(0, effects.magnetRemaining - deltaSeconds)
     effects.dashRemaining = Math.max(0, effects.dashRemaining - deltaSeconds)
+    effects.flightRemaining = Math.max(0, effects.flightRemaining - deltaSeconds)
+    effects.mushroomRemaining = Math.max(0, effects.mushroomRemaining - deltaSeconds)
     for (const item of items) {
       item.x -= worldSpeed * deltaSeconds
       item.hitbox = { left: item.x - item.width / 2, right: item.x + item.width / 2, top: item.y - item.height / 2, bottom: item.y + item.height / 2 }
@@ -144,8 +149,12 @@ export const PowerUpManager = {
       else if (item.type === 'slow') effects.slowRemaining = item.duration
       else if (item.type === 'magnet') effects.magnetRemaining = item.duration
       else if (item.type === 'dash') effects.dashRemaining = item.duration
-      else if (health < maxHealth) health++
-      else scoreBonus += 30
+      else if (item.type === 'flight') effects.flightRemaining = item.duration
+      else if (item.type === 'mushroom') effects.mushroomRemaining = item.duration
+      else if (item.type === 'heart') {
+        if (health < maxHealth) health++
+        else scoreBonus += 30
+      }
       items.splice(i, 1)
     }
     return { health, scoreBonus, types }
@@ -163,5 +172,7 @@ export const PowerUpManager = {
     effects.slowRemaining = 0
     effects.magnetRemaining = 0
     effects.dashRemaining = 0
+    effects.flightRemaining = 0
+    effects.mushroomRemaining = 0
   },
 }
