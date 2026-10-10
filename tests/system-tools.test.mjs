@@ -13,6 +13,7 @@ test('Spring Boot log lines expose level, timestamp, and thread for filtering', 
   assert.equal(warning.level, 'WARN')
   assert.equal(warning.thread, 'worker-2')
   assert.equal(warning.timestampMs, Date.parse('2026-10-10T09:31:00.400'))
+  assert.equal(parseLogLine('\u001b[36m2026-10-10 09:31:00 INFO 421 --- [worker-2] app.Job : ready').thread, 'worker-2')
   assert.equal(parseLogLine('stack trace continuation').level, 'OTHER')
 })
 

@@ -488,6 +488,7 @@ function onGlobalKey(event: KeyboardEvent) {
     toolSearchInput.value?.focus()
     return
   }
+  if (isSystemMode.value) return
   if (!event.ctrlKey || event.altKey || event.shiftKey && event.key !== 'c') {
     if (event.ctrlKey && event.altKey && event.key.toLowerCase() === 'l') { event.preventDefault(); void format() }
     return

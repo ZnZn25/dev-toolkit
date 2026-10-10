@@ -45,7 +45,7 @@ const filters = computed(() => ({
   keyword: keyword.value,
   thread: threadFilter.value,
   fromMs: fromTime.value ? Date.parse(fromTime.value) : null,
-  toMs: toTime.value ? Date.parse(toTime.value) : null,
+  toMs: toTime.value ? Date.parse(toTime.value) + 60_000 - 1 : null,
 }))
 const filteredEntries = computed(() => filterLogLines(entries.value, filters.value))
 const visibleCount = computed(() => Math.ceil(viewportHeight.value / ROW_HEIGHT) + OVERSCAN * 2)

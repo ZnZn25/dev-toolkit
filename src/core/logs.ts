@@ -29,7 +29,9 @@ function timestampValue(source: string): number | null {
 export function parseLogLine(message: string): ParsedLogLine {
   const timestampText = message.match(timestampPrefix)?.[1] ?? null
   const levelText = message.match(/\b(ERROR|WARN(?:ING)?|INFO)\b/i)?.[1]?.toUpperCase()
-  const threadText = message.match(/\[([^\]\r\n]+)\]/)?.[1]?.trim() ?? ''
+  const threadText = message.match(/---\s+\[([^\]\r\n]+)\]/)?.[1]?.trim()
+    ?? message.match(/\[([^\]\r\n]+)\]/)?.[1]?.trim()
+    ?? ''
   return {
     timestamp: timestampText,
     timestampMs: timestampText ? timestampValue(timestampText) : null,
