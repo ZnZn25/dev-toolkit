@@ -1,9 +1,10 @@
 import { CoinManager, PowerUpManager, pickPowerUp, type ActivePowerUps, type PowerUpType, type RunnerCoin, type RunnerPowerUp } from './runner-items.ts'
+import { evolutionLevelForCoins, type RunnerEvolutionLevel } from './runner-evolution.ts'
 
 export type RunnerStatus = 'ready' | 'running' | 'paused' | 'game-over'
 export type ObstacleKind = 'small-box' | 'large-box' | 'roadblock' | 'tire-stack' | 'overhead-bar'
-export type RunnerEvent = 'jump' | 'double-jump' | 'land' | 'passed' | 'collision' | 'new-record' | 'coin' | 'shield-break' | 'dash-block' | `powerup-${PowerUpType}`
-export type RunnerParticleKind = 'takeoff' | 'double-jump' | 'landing' | 'hit' | 'shield-break' | 'collect' | 'dash' | 'heart'
+export type RunnerEvent = 'jump' | 'double-jump' | 'land' | 'passed' | 'collision' | 'new-record' | 'coin' | 'shield-break' | 'dash-block' | `powerup-${PowerUpType}` | `evolution-${2 | 3 | 4 | 5}`
+export type RunnerParticleKind = 'takeoff' | 'double-jump' | 'landing' | 'hit' | 'shield-break' | 'collect' | 'dash' | 'heart' | 'evolution'
 export type RunnerParticle = { kind: RunnerParticleKind; x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number }
 
 export const RUNNER = {
@@ -50,6 +51,10 @@ export type RunnerState = {
   distanceScore: number
   bonusScore: number
   coinsCollected: number
+  lifetimeCoins: number
+  evolutionLevel: RunnerEvolutionLevel
+  highestEvolutionLevel: RunnerEvolutionLevel
+  evolutionRemaining: number
   coins: RunnerCoin[]
   powerUps: RunnerPowerUp[]
   activePowerUps: ActivePowerUps
@@ -114,7 +119,7 @@ export function obstacleHitbox(obstacle: RunnerObstacle): GameRect {
   }
 }
 
-function initialState(bestScore: number): RunnerState {
+function initialState(bestScore: number, lifetimeCoins = 0, highestEvolutionLevel: RunnerEvolutionLevel = 1): RunnerState {
   return {
     status: 'ready',
     viewWidth: RUNNER.width,
@@ -131,6 +136,10 @@ function initialState(bestScore: number): RunnerState {
     distanceScore: 0,
     bonusScore: 0,
     coinsCollected: 0,
+    lifetimeCoins,
+    evolutionLevel: 1,
+    highestEvolutionLevel,
+    evolutionRemaining: 0,
     coins: [],
     powerUps: [],
     activePowerUps: { shield: false, slowRemaining: 0, magnetRemaining: 0, dashRemaining: 0 },
@@ -159,8 +168,8 @@ export class RunnerSimulation {
   private passedObstacles = 0
   private readonly random: () => number
 
-  constructor(bestScore = 0, random: () => number = Math.random) {
-    this.state = initialState(Math.max(0, Math.floor(bestScore)))
+  constructor(bestScore = 0, random: () => number = Math.random, progress = { lifetimeCoins: 0, highestEvolutionLevel: 1 as RunnerEvolutionLevel }) {
+    this.state = initialState(Math.max(0, Math.floor(bestScore)), Math.max(0, Math.floor(progress.lifetimeCoins)), progress.highestEvolutionLevel)
     this.random = random
   }
 
@@ -186,7 +195,7 @@ export class RunnerSimulation {
 
   restart(startImmediately = true): void {
     const bestScore = this.state.bestScore
-    Object.assign(this.state, initialState(bestScore))
+    Object.assign(this.state, initialState(bestScore, this.state.lifetimeCoins, this.state.highestEvolutionLevel))
     this.nextObstacleId = 1
     this.nextItemId = 1
     this.passedObstacles = 0
@@ -232,6 +241,7 @@ export class RunnerSimulation {
 
     const wasAirborne = !this.state.onGround
     this.state.elapsed += dt
+    this.state.evolutionRemaining = Math.max(0, this.state.evolutionRemaining - dt)
     this.state.doubleJumpRemaining = Math.max(0, this.state.doubleJumpRemaining - dt)
     this.state.invulnerabilityRemaining = Math.max(0, this.state.invulnerabilityRemaining - dt)
     this.state.hitFlashRemaining = Math.max(0, this.state.hitFlashRemaining - dt)
@@ -277,6 +287,15 @@ export class RunnerSimulation {
     const collectedCoins = CoinManager.collect(this.state.coins, playerBox)
     if (collectedCoins > 0) {
       this.state.coinsCollected += collectedCoins
+      this.state.lifetimeCoins += collectedCoins
+      const nextLevel = evolutionLevelForCoins(this.state.coinsCollected)
+      if (nextLevel > this.state.evolutionLevel) {
+        this.state.evolutionLevel = nextLevel
+        this.state.highestEvolutionLevel = Math.max(this.state.highestEvolutionLevel, nextLevel) as RunnerEvolutionLevel
+        this.state.evolutionRemaining = 2.4
+        this.emitParticles('evolution', 24, RUNNER.playerX + 48, RUNNER.groundY - this.state.jumpHeight - 66)
+        events.push(`evolution-${nextLevel}` as RunnerEvent)
+      }
       this.emitParticles('collect', Math.min(12, collectedCoins * 4), RUNNER.playerX + 48, RUNNER.groundY - this.state.jumpHeight - 66)
       events.push('coin')
     }
@@ -368,7 +387,7 @@ export class RunnerSimulation {
     for (let i = 0; i < count && this.state.particles.length < 64; i++) {
       const angle = (Math.PI * 2 * i) / count + offset
       const speed = kind === 'double-jump' ? 72 + (i % 4) * 16 : 34 + (i % 3) * 13
-      const life = kind === 'double-jump' ? 0.48 : kind === 'hit' || kind === 'shield-break' ? 0.42 : 0.34
+      const life = kind === 'evolution' ? 0.72 : kind === 'double-jump' ? 0.48 : kind === 'hit' || kind === 'shield-break' ? 0.42 : 0.34
       this.state.particles.push({
         kind,
         x,

@@ -1,4 +1,5 @@
 import { RUNNER, type RunnerObstacle, type RunnerState } from './runner-game.ts'
+import { evolutionForLevel } from './runner-evolution.ts'
 
 const TAU = Math.PI * 2
 
@@ -23,7 +24,7 @@ export function renderRunner(ctx: CanvasRenderingContext2D, state: RunnerState, 
   drawCoins(ctx, state)
   for (const item of state.powerUps) drawPowerUp(ctx, item.type, item.x, item.y, state.elapsed)
   if (effects !== 'off') drawPowerEffects(ctx, state, effects === 'reduced')
-  drawRunner(ctx, state)
+  drawRunner(ctx, state, effects)
   if (effects === 'full') drawParticles(ctx, state)
   if (state.activePowerUps.slowRemaining > 0) {
     ctx.fillStyle = 'rgba(106, 187, 244, .10)'
@@ -340,7 +341,8 @@ function drawRoadblock(ctx: CanvasRenderingContext2D, obstacle: RunnerObstacle, 
   ctx.restore()
 }
 
-function drawRunner(ctx: CanvasRenderingContext2D, state: RunnerState): void {
+function drawRunner(ctx: CanvasRenderingContext2D, state: RunnerState, effects: 'full' | 'reduced' | 'off'): void {
+  const evolution = evolutionForLevel(state.evolutionLevel)
   const airborne = !state.onGround
   const runPhase = state.elapsed * 13
   const bob = state.status === 'running' && !airborne && !state.sliding ? Math.abs(Math.sin(runPhase * 2)) * 3 : 0
@@ -365,8 +367,55 @@ function drawRunner(ctx: CanvasRenderingContext2D, state: RunnerState): void {
     ctx.translate(-55, 75)
   }
   if (state.gliding) drawGlideWinds(ctx)
+  if (effects !== 'off') {
+    if (runningForState(state)) drawEvolutionTrail(ctx, state, evolution.trail, evolution.appearance, effects === 'reduced')
+    drawEvolutionAura(ctx, state, evolution.glow, effects === 'reduced')
+  }
   if (state.invulnerabilityRemaining > 0 && Math.floor((1.5 - state.invulnerabilityRemaining) * 12) % 2 === 0) ctx.globalAlpha = 0.38
-  drawCharacter(ctx, state, runPhase, airborne, hitProgress)
+  drawCharacter(ctx, state, runPhase, airborne, hitProgress, evolution)
+  ctx.restore()
+}
+
+function runningForState(state: RunnerState): boolean {
+  return state.status === 'running' && state.onGround && !state.sliding
+}
+
+function drawEvolutionTrail(ctx: CanvasRenderingContext2D, state: RunnerState, color: string, appearance: string, reduced: boolean): void {
+  ctx.save()
+  ctx.strokeStyle = color
+  ctx.lineCap = 'round'
+  ctx.globalAlpha = appearance === 'cosmic' ? 0.55 : 0.42
+  for (let i = 0; i < (reduced ? 1 : 3); i++) {
+    const y = -28 - ((i * 23 + Math.floor(state.elapsed * 38)) % 64)
+    ctx.lineWidth = 2 + i * 0.5
+    ctx.beginPath()
+    ctx.moveTo(9 - i * 5, y)
+    ctx.lineTo(-13 - i * 8, y + Math.sin(state.elapsed * 14 + i) * 3)
+    ctx.stroke()
+  }
+  if (appearance === 'cosmic') {
+    ctx.fillStyle = color
+    for (let i = 0; i < (reduced ? 1 : 3); i++) {
+      const x = -13 - ((state.elapsed * (24 + i * 5) + i * 31) % 55)
+      const y = -25 - ((i * 27 + Math.floor(state.elapsed * 32)) % 83)
+      ctx.beginPath(); ctx.arc(x, y, i === 0 ? 2.2 : 1.4, 0, TAU); ctx.fill()
+    }
+  }
+  ctx.restore()
+}
+
+function drawEvolutionAura(ctx: CanvasRenderingContext2D, state: RunnerState, color: string, reduced: boolean): void {
+  if (color === 'transparent' && state.evolutionRemaining <= 0) return
+  const evolutionFlash = state.evolutionRemaining > 0 ? state.evolutionRemaining / 2.4 : 0
+  ctx.save()
+  ctx.globalAlpha = color === 'transparent' ? evolutionFlash * 0.6 : 0.14 + evolutionFlash * 0.38
+  ctx.strokeStyle = color === 'transparent' ? '#ffffff' : color
+  ctx.shadowColor = ctx.strokeStyle
+  ctx.shadowBlur = reduced ? 0 : 11 + evolutionFlash * 20
+  ctx.lineWidth = reduced ? 2 : 3
+  ctx.beginPath()
+  ctx.ellipse(56, -78, 43 + evolutionFlash * 5, 76 + evolutionFlash * 7, 0, 0, TAU)
+  ctx.stroke()
   ctx.restore()
 }
 
@@ -387,18 +436,31 @@ function drawGlideWinds(ctx: CanvasRenderingContext2D): void {
 }
 
 function drawParticles(ctx: CanvasRenderingContext2D, state: RunnerState): void {
+  const evolution = evolutionForLevel(state.evolutionLevel)
   ctx.save()
   for (const particle of state.particles) {
     const progress = particle.life / particle.maxLife
     ctx.globalAlpha = Math.min(1, progress * 1.5)
-    ctx.fillStyle = particle.kind === 'double-jump' ? '#fff1a8'
+    ctx.fillStyle = particle.kind === 'evolution' ? (evolution.glow === 'transparent' ? evolution.trim : evolution.glow)
+      : particle.kind === 'double-jump' ? (evolution.doubleJumpEffect === 'dust' ? '#fff1a8' : evolution.trim)
       : particle.kind === 'landing' ? '#c8ad79'
         : particle.kind === 'hit' ? '#fff1a8'
           : particle.kind === 'shield-break' ? '#ffd565'
             : particle.kind === 'heart' ? '#ef6a80'
               : particle.kind === 'collect' ? '#ffe890'
                 : particle.kind === 'dash' ? '#d8f5ff' : '#f4e6b5'
-    if (particle.kind === 'double-jump') {
+    if (particle.kind === 'double-jump' && evolution.doubleJumpEffect === 'lightning') {
+      ctx.strokeStyle = evolution.trim
+      ctx.lineWidth = 2
+      ctx.beginPath(); ctx.moveTo(particle.x, particle.y); ctx.lineTo(particle.x + particle.size, particle.y - particle.size); ctx.lineTo(particle.x - 1, particle.y - particle.size * 1.6); ctx.lineTo(particle.x + particle.size, particle.y - particle.size * 2.2); ctx.stroke()
+    }
+    else if (particle.kind === 'double-jump' && evolution.doubleJumpEffect === 'cosmic') {
+      drawStar(ctx, particle.x, particle.y, particle.size * progress, (1 - progress) * 2)
+    }
+    else if (particle.kind === 'evolution') {
+      drawStar(ctx, particle.x, particle.y, particle.size * progress * 1.8, (1 - progress) * 2)
+    }
+    else if (particle.kind === 'double-jump') {
       ctx.save()
       ctx.translate(particle.x, particle.y)
       ctx.rotate((1 - progress) * 2)
@@ -414,7 +476,25 @@ function drawParticles(ctx: CanvasRenderingContext2D, state: RunnerState): void 
   ctx.restore()
 }
 
-function drawCharacter(ctx: CanvasRenderingContext2D, state: RunnerState, phase: number, airborne: boolean, hitProgress: number): void {
+function drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, rotation: number): void {
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.rotate(rotation)
+  ctx.beginPath()
+  for (let point = 0; point < 8; point++) {
+    const angle = point * Math.PI / 4
+    const radius = point % 2 ? size * 0.4 : size
+    const px = Math.cos(angle) * radius
+    const py = Math.sin(angle) * radius
+    if (point === 0) ctx.moveTo(px, py)
+    else ctx.lineTo(px, py)
+  }
+  ctx.closePath()
+  ctx.fill()
+  ctx.restore()
+}
+
+function drawCharacter(ctx: CanvasRenderingContext2D, state: RunnerState, phase: number, airborne: boolean, hitProgress: number, evolution: ReturnType<typeof evolutionForLevel>): void {
   const running = state.status === 'running' && !airborne && !state.sliding
   const stride = running ? Math.sin(phase) * 15 : 0
   const legBend = airborne ? 9 : running ? 5 + Math.max(0, Math.cos(phase)) * 5 : 0
@@ -443,7 +523,7 @@ function drawCharacter(ctx: CanvasRenderingContext2D, state: RunnerState, phase:
   drawShoe(ctx, 39 - (airborne ? 16 : stride * 1.5), -1, -1)
   drawShoe(ctx, 63 + (airborne ? 7 : stride * 1.45), -1, 1)
 
-  ctx.strokeStyle = '#566b40'
+  ctx.strokeStyle = evolution.outfit
   ctx.lineWidth = 15
   ctx.beginPath()
   if (airborne && state.gliding) {
@@ -481,14 +561,14 @@ function drawCharacter(ctx: CanvasRenderingContext2D, state: RunnerState, phase:
     ctx.fill()
   }
 
-  ctx.fillStyle = '#566b40'
-  ctx.strokeStyle = '#374b35'
+  ctx.fillStyle = evolution.outfit
+  ctx.strokeStyle = evolution.appearance === 'classic' ? '#374b35' : evolution.trim
   ctx.lineWidth = 2
   ctx.beginPath()
   ctx.roundRect(27, -76, 54, 53, 14)
   ctx.fill()
   ctx.stroke()
-  drawCamouflage(ctx)
+  drawEvolutionOutfit(ctx, evolution.appearance, evolution.trim)
 
   ctx.strokeStyle = '#ece8d4'
   ctx.lineWidth = 2
@@ -571,7 +651,45 @@ function drawCharacter(ctx: CanvasRenderingContext2D, state: RunnerState, phase:
   ctx.lineTo(91, -146)
   ctx.stroke()
 
-  if (hitProgress > 0) drawBumpStars(ctx, hitProgress)
+  if (evolution.appearance === 'speed') drawHeadband(ctx, evolution.trim)
+
+  if (hitProgress > 0) drawBumpStars(ctx, hitProgress, evolution.trim)
+}
+
+function drawEvolutionOutfit(ctx: CanvasRenderingContext2D, appearance: string, trim: string): void {
+  if (appearance === 'classic') {
+    drawCamouflage(ctx)
+    return
+  }
+  ctx.save()
+  ctx.strokeStyle = trim
+  ctx.lineWidth = 3
+  ctx.lineCap = 'round'
+  if (appearance === 'speed') {
+    ctx.beginPath(); ctx.moveTo(34, -68); ctx.lineTo(72, -68); ctx.moveTo(38, -47); ctx.lineTo(77, -47); ctx.stroke()
+  }
+  else if (appearance === 'thunder') {
+    ctx.beginPath(); ctx.moveTo(58, -72); ctx.lineTo(49, -58); ctx.lineTo(59, -58); ctx.lineTo(52, -42); ctx.lineTo(69, -61); ctx.lineTo(59, -61); ctx.stroke()
+  }
+  else if (appearance === 'gold') {
+    ctx.lineWidth = 5
+    ctx.beginPath(); ctx.moveTo(34, -68); ctx.lineTo(74, -68); ctx.moveTo(37, -42); ctx.lineTo(71, -42); ctx.stroke()
+    ctx.beginPath(); ctx.arc(54, -56, 7, 0, TAU); ctx.fillStyle = '#fff0ba'; ctx.fill()
+  }
+  else {
+    ctx.fillStyle = trim
+    for (const [x, y] of [[39, -64], [68, -51], [49, -39]] as const) drawStar(ctx, x, y, 4, 0)
+  }
+  ctx.restore()
+}
+
+function drawHeadband(ctx: CanvasRenderingContext2D, color: string): void {
+  ctx.save()
+  ctx.strokeStyle = color
+  ctx.lineWidth = 4
+  ctx.lineCap = 'round'
+  ctx.beginPath(); ctx.moveTo(40, -137); ctx.quadraticCurveTo(64, -145, 87, -137); ctx.moveTo(86, -137); ctx.lineTo(97, -129); ctx.stroke()
+  ctx.restore()
 }
 
 function drawShoe(ctx: CanvasRenderingContext2D, x: number, y: number, direction: number): void {
@@ -630,10 +748,10 @@ function drawCamouflage(ctx: CanvasRenderingContext2D): void {
   ctx.restore()
 }
 
-function drawBumpStars(ctx: CanvasRenderingContext2D, progress: number): void {
+function drawBumpStars(ctx: CanvasRenderingContext2D, progress: number, color: string): void {
   ctx.save()
   ctx.globalAlpha = Math.min(1, progress * 3)
-  ctx.fillStyle = '#fff0a5'
+  ctx.fillStyle = color
   for (let i = 0; i < 3; i++) {
     const angle = i * TAU / 3
     const x = 64 + Math.cos(angle) * 31

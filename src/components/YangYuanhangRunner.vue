@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RUNNER, RunnerSimulation, type RunnerEvent } from '../core/runner-game.ts'
+import { RUNNER_EVOLUTIONS, evolutionForLevel } from '../core/runner-evolution.ts'
 import { loadRunnerAudioSettings, RunnerAudioManager } from '../core/runner-audio.ts'
 import { renderRunner } from '../core/runner-renderer.ts'
-import { loadRunnerBestScore, saveRunnerBestScore } from '../core/runner-record.ts'
+import { loadRunnerBestScore, loadRunnerEvolutionRecord, saveRunnerBestScore, saveRunnerEvolutionRecord } from '../core/runner-record.ts'
 
 const props = defineProps<{ active: boolean; theme: 'dark' | 'light'; effects: 'full' | 'reduced' | 'off' }>()
 const STEP = 1 / 60
 const MAX_FRAME_SECONDS = 0.1
 
-const simulation = new RunnerSimulation(loadRunnerBestScore())
+const savedEvolution = loadRunnerEvolutionRecord()
+const simulation = new RunnerSimulation(loadRunnerBestScore(), Math.random, savedEvolution)
 const ui = reactive({
   status: simulation.state.status,
   score: simulation.state.score,
@@ -17,6 +19,10 @@ const ui = reactive({
   health: simulation.state.health,
   maxHealth: simulation.state.maxHealth,
   coins: simulation.state.coinsCollected,
+  lifetimeCoins: simulation.state.lifetimeCoins,
+  evolutionLevel: simulation.state.evolutionLevel,
+  highestEvolutionLevel: simulation.state.highestEvolutionLevel,
+  evolutionRemaining: simulation.state.evolutionRemaining,
   shield: simulation.state.activePowerUps.shield,
   slowRemaining: simulation.state.activePowerUps.slowRemaining,
   magnetRemaining: simulation.state.activePowerUps.magnetRemaining,
@@ -36,6 +42,15 @@ const elapsedLabel = computed(() => {
   return Math.floor(seconds / 60).toString().padStart(2, '0') + ':' + (seconds % 60).toString().padStart(2, '0')
 })
 const statusLabel = computed(() => ({ ready: '准备就绪', running: '奔跑中', paused: '已暂停', 'game-over': '本局结束' })[ui.status])
+const currentEvolution = computed(() => evolutionForLevel(ui.evolutionLevel))
+const evolutionAccent = computed(() => currentEvolution.value.glow === 'transparent' ? currentEvolution.value.trim : currentEvolution.value.glow)
+const nextEvolution = computed(() => RUNNER_EVOLUTIONS[ui.evolutionLevel] ?? null)
+const evolutionProgress = computed(() => {
+  if (!nextEvolution.value) return 1
+  const currentThreshold = currentEvolution.value.requiredCoins
+  return Math.max(0, Math.min(1, (ui.coins - currentThreshold) / (nextEvolution.value.requiredCoins - currentThreshold)))
+})
+const coinsToNextEvolution = computed(() => nextEvolution.value ? Math.max(0, nextEvolution.value.requiredCoins - ui.coins) : 0)
 const activeEffects = computed(() => [
   { key: 'shield', icon: '🛡', label: '护盾', remaining: ui.shield ? '可抵挡一次' : '', progress: ui.shield ? 1 : 0 },
   { key: 'slow', icon: '❄', label: '减速', remaining: ui.slowRemaining, progress: ui.slowRemaining / 5 },
@@ -49,6 +64,8 @@ let accumulator = 0
 let resizeObserver: ResizeObserver | undefined
 let saveTimer: number | undefined
 let savedBestScore = simulation.state.bestScore
+let savedLifetimeCoins = simulation.state.lifetimeCoins
+let savedHighestEvolutionLevel = simulation.state.highestEvolutionLevel
 let spaceHeld = false
 let ctrlHeld = false
 
@@ -59,6 +76,10 @@ function syncUi(): void {
   ui.health = simulation.state.health
   ui.maxHealth = simulation.state.maxHealth
   ui.coins = simulation.state.coinsCollected
+  ui.lifetimeCoins = simulation.state.lifetimeCoins
+  ui.evolutionLevel = simulation.state.evolutionLevel
+  ui.highestEvolutionLevel = simulation.state.highestEvolutionLevel
+  ui.evolutionRemaining = simulation.state.evolutionRemaining
   ui.shield = simulation.state.activePowerUps.shield
   ui.slowRemaining = simulation.state.activePowerUps.slowRemaining
   ui.magnetRemaining = simulation.state.activePowerUps.magnetRemaining
@@ -71,18 +92,24 @@ function syncAudioState(): void {
   audio.setState(props.active ? simulation.state.status : 'inactive', simulation.state.speed)
 }
 
-function flushBestScore(): void {
+function flushRecords(): void {
   if (saveTimer !== undefined) window.clearTimeout(saveTimer)
   saveTimer = undefined
-  if (simulation.state.bestScore <= savedBestScore) return
-  savedBestScore = simulation.state.bestScore
-  saveRunnerBestScore(savedBestScore)
+  if (simulation.state.bestScore > savedBestScore) {
+    savedBestScore = simulation.state.bestScore
+    saveRunnerBestScore(savedBestScore)
+  }
+  if (simulation.state.lifetimeCoins > savedLifetimeCoins || simulation.state.highestEvolutionLevel > savedHighestEvolutionLevel) {
+    savedLifetimeCoins = simulation.state.lifetimeCoins
+    savedHighestEvolutionLevel = simulation.state.highestEvolutionLevel
+    saveRunnerEvolutionRecord({ lifetimeCoins: savedLifetimeCoins, highestEvolutionLevel: savedHighestEvolutionLevel })
+  }
 }
 
-function scheduleBestScoreSave(): void {
-  if (simulation.state.bestScore <= savedBestScore) return
+function scheduleRecordSave(): void {
+  if (simulation.state.bestScore <= savedBestScore && simulation.state.lifetimeCoins <= savedLifetimeCoins && simulation.state.highestEvolutionLevel <= savedHighestEvolutionLevel) return
   if (saveTimer !== undefined) window.clearTimeout(saveTimer)
-  saveTimer = window.setTimeout(flushBestScore, 500)
+  saveTimer = window.setTimeout(flushRecords, 500)
 }
 
 function resizeCanvas(): void {
@@ -128,7 +155,7 @@ function frame(timestamp: number): void {
     }
     syncUi()
     syncAudioState()
-    scheduleBestScoreSave()
+    scheduleRecordSave()
   }
   else if (simulation.state.status === 'game-over' && simulation.state.impactRemaining > 0) {
     simulation.step(elapsed)
@@ -154,6 +181,7 @@ function stopAnimation(): void {
 
 function handleEvents(events: RunnerEvent[]): void {
   for (const event of events) audio.play(event)
+  if (events.includes('coin')) scheduleRecordSave()
 }
 
 function refresh(): void {
@@ -278,7 +306,7 @@ function onVisibilityChange(): void {
 }
 
 function onPageHide(): void {
-  flushBestScore()
+  flushRecords()
   audio.setState('inactive')
 }
 
@@ -364,7 +392,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   window.removeEventListener('pageshow', onPageShow)
   if (saveTimer !== undefined) window.clearTimeout(saveTimer)
-  flushBestScore()
+  flushRecords()
   audio.dispose()
 })
 </script>
@@ -375,7 +403,7 @@ onBeforeUnmount(() => {
       <div class="runner-title"><strong>杨远航快跑</strong><span>杨远航今天也要全力冲刺！</span></div>
       <div class="runner-scoreboard" aria-label="本局游戏数据">
         <div class="runner-stat"><span>当前得分</span><strong>{{ ui.score.toLocaleString() }}</strong></div>
-        <div class="runner-stat runner-coin-stat"><span>金币</span><strong>◉ {{ ui.coins }}</strong></div>
+        <div class="runner-stat runner-coin-stat"><span>本局金币</span><strong>◉ {{ ui.coins }}</strong></div>
         <div class="runner-stat runner-life-stat" :aria-label="`生命值 ${ui.health}/${ui.maxHealth}`"><span>生命</span><strong class="runner-hearts" aria-hidden="true"><i v-for="index in ui.maxHealth" :key="index" :class="{ 'is-empty': index > ui.health }">♥</i></strong></div>
         <div class="runner-stat"><span>最高纪录</span><strong>{{ ui.bestScore.toLocaleString() }}</strong></div>
         <div class="runner-stat runner-stat-optional"><span>速度</span><strong>{{ Math.round(ui.speed) }}</strong></div>
@@ -401,6 +429,12 @@ onBeforeUnmount(() => {
     <div class="runner-stage-wrap">
       <div ref="stage" class="runner-stage" tabindex="0" role="application" aria-label="游戏区域。空格跳跃并可在下落时滑翔，Ctrl 下铲，P 暂停，R 重新开始，Esc 暂停" @keydown="onStageKeydown" @pointerdown="onStagePointerDown">
         <canvas ref="canvas" class="runner-canvas" aria-hidden="true"></canvas>
+        <div class="runner-evolution-panel" :class="{ 'is-evolving': ui.evolutionRemaining > 0 }" :style="{ '--evolution-color': evolutionAccent }" aria-live="polite">
+          <div class="runner-evolution-heading"><strong>{{ currentEvolution.title }} Lv.{{ ui.evolutionLevel }}</strong><span v-if="ui.evolutionRemaining > 0">进化成功！</span></div>
+          <div class="runner-evolution-track"><i :style="{ width: `${evolutionProgress * 100}%` }"></i></div>
+          <small v-if="nextEvolution">本局金币 {{ ui.coins }} / {{ nextEvolution.requiredCoins }} · 距进化 {{ coinsToNextEvolution }}</small>
+          <small v-else>已达到终极形态 · 累计金币 {{ ui.lifetimeCoins }} · 历史最高 Lv.{{ ui.highestEvolutionLevel }}</small>
+        </div>
         <div v-if="activeEffects.length" class="runner-active-effects" aria-label="已激活道具">
           <div v-for="effect in activeEffects" :key="effect.key" class="runner-effect-chip" :class="'effect-' + effect.key">
             <span class="runner-effect-icon" aria-hidden="true">{{ effect.icon }}</span>
@@ -456,6 +490,15 @@ onBeforeUnmount(() => {
 .runner-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--line)); border-radius: 15px; outline: none; background: #b7e9ef; box-shadow: inset 0 1px 0 #ffffff35, 0 9px 28px #0002; }
 .runner-stage:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .runner-canvas { display: block; width: 100%; height: 100%; }
+.runner-evolution-panel { position: absolute; z-index: 1; top: 11px; right: 11px; display: flex; flex-direction: column; gap: 5px; width: min(248px, 43%); padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--evolution-color) 55%, #ffffff); border-radius: 10px; color: #293844; background: #ffffffd9; box-shadow: 0 3px 14px #253c4a1c; backdrop-filter: blur(5px); pointer-events: none; }
+.runner-evolution-panel.is-evolving { box-shadow: 0 0 20px color-mix(in srgb, var(--evolution-color) 68%, transparent); animation: runner-evolution-pulse .42s ease-in-out infinite alternate; }
+.runner-evolution-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.runner-evolution-heading strong { color: color-mix(in srgb, var(--evolution-color) 72%, #253542); font-size: 10px; }
+.runner-evolution-heading span { color: #8052ac; font-size: 9px; font-weight: 800; }
+.runner-evolution-panel small { overflow: hidden; color: #687985; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.runner-evolution-track { height: 4px; overflow: hidden; border-radius: 99px; background: #dfe5e8; }
+.runner-evolution-track i { display: block; height: 100%; border-radius: inherit; background: var(--evolution-color); transition: width .2s linear; }
+@keyframes runner-evolution-pulse { to { transform: scale(1.025); } }
 .runner-active-effects { position: absolute; z-index: 1; top: 11px; left: 11px; display: flex; flex-direction: column; gap: 5px; width: min(170px, 42%); pointer-events: none; }
 .runner-effect-chip { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 6px 8px; border: 1px solid #ffffffd9; border-radius: 9px; color: #293844; background: #ffffffd9; box-shadow: 0 3px 11px #253c4a20; backdrop-filter: blur(5px); }
 .runner-effect-icon { display: grid; flex: 0 0 23px; place-items: center; width: 23px; height: 23px; border-radius: 7px; color: #fff; background: #d5a43f; font-size: 12px; }
@@ -501,10 +544,14 @@ onBeforeUnmount(() => {
   .runner-stat { min-width: 59px; padding-inline: 7px; }
   .runner-stat-optional { display: none; }
   .runner-active-effects { width: min(150px, 48%); }
+  .runner-evolution-panel { width: min(220px, 48%); }
 }
 @media (max-height: 610px) {
   .runner-game { gap: 6px; padding-block: 7px; }
   .runner-stat { padding-block: 3px; }
   .runner-stage-wrap { grid-template-rows: minmax(0, 1fr) 19px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .runner-evolution-panel.is-evolving { animation: none; }
 }
 </style>
