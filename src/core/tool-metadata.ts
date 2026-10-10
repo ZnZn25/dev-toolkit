@@ -46,6 +46,9 @@ export const toolGroups = [
     { mode: 'http', name: 'HTTP 请求', label: 'HTTP 请求', icon: '⇄', inputTitle: '请求 Body', extension: 'txt', fileExtensions: [], core: false, historyPolicy: 'content' },
     { mode: 'response', name: 'HTTP 响应解析', label: '响应解析', icon: '⇣', inputTitle: 'HTTP 原始响应或响应正文', extension: 'txt', fileExtensions: [], core: false, historyPolicy: 'content' },
   ] },
+  { label: '娱乐工具', tools: [
+    { mode: 'yangyuanhang-run', name: '杨远航快跑', label: '杨远航快跑', icon: '🏃', inputTitle: '游戏', extension: 'txt', fileExtensions: [], core: false, historyPolicy: 'metadata' },
+  ] },
 ] as const satisfies readonly ToolGroup[]
 
 export type ToolMode = typeof toolGroups[number]['tools'][number]['mode']
