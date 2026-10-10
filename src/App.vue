@@ -9,21 +9,22 @@ import CodeEditor from './components/CodeEditor.vue'
 import UtilityWorkspace from './components/UtilityWorkspace.vue'
 import LiveLogViewer from './components/LiveLogViewer.vue'
 import PortInspector from './components/PortInspector.vue'
+import YangYuanhangRunner from './components/YangYuanhangRunner.vue'
 import { FormatterWorker, type FormatAction } from './core/format-worker-client'
 import { getTool, historyContent, parseRecentModes, toolGroups, toolModeByExtension, type ToolInfo, type ToolMode } from './core/tool-metadata'
 import { generateUuidBatch, type UuidFormat } from './core/uuid'
 
 type Mode = ToolMode
-type UtilityMode = Exclude<Mode, 'json' | 'sql' | 'uuid' | 'logs' | 'ports'>
+type UtilityMode = Exclude<Mode, 'json' | 'sql' | 'uuid' | 'logs' | 'ports' | 'yangyuanhang-run'>
 type Theme = 'dark' | 'light'
 type Pane = 'input' | 'output' | null
 type EditorHandle = { focus: () => void; hasTextFocus: () => boolean }
 type UtilityHandle = { run: () => Promise<string>; stop: () => void; outputExtension: () => string; historyInput: () => string }
 type HistoryEntry = { id: number; createdAt: number; mode: Mode; operation: string; input: string; output: string; ok: boolean; redacted: boolean }
-type AppSettings = { indent: '2' | '4' | 'tab'; keywordCase: 'preserve' | 'upper' | 'lower'; dialect: 'postgresql' | 'mysql' | 'transactsql'; theme: Theme; fontSize: number }
+type AppSettings = { indent: '2' | '4' | 'tab'; keywordCase: 'preserve' | 'upper' | 'lower'; dialect: 'postgresql' | 'mysql' | 'transactsql'; theme: Theme; fontSize: number; gameEffects: 'full' | 'reduced' | 'off' }
 
 const appVersion = packageJson.version
-const defaultSettings: AppSettings = { indent: '2', keywordCase: 'upper', dialect: 'postgresql', theme: 'dark', fontSize: 13 }
+const defaultSettings: AppSettings = { indent: '2', keywordCase: 'upper', dialect: 'postgresql', theme: 'dark', fontSize: 13, gameEffects: 'full' }
 const loadSettings = (): AppSettings => {
   try {
     const saved = JSON.parse(localStorage.getItem('local-format-studio.settings') ?? '{}')
@@ -33,6 +34,7 @@ const loadSettings = (): AppSettings => {
       dialect: ['postgresql', 'mysql', 'transactsql'].includes(saved.dialect) ? saved.dialect : defaultSettings.dialect,
       theme: ['dark', 'light'].includes(saved.theme) ? saved.theme : defaultSettings.theme,
       fontSize: [12, 13, 14, 15, 16].includes(saved.fontSize) ? saved.fontSize : defaultSettings.fontSize,
+      gameEffects: ['full', 'reduced', 'off'].includes(saved.gameEffects) ? saved.gameEffects : defaultSettings.gameEffects,
     }
   }
   catch { return defaultSettings }
@@ -425,7 +427,7 @@ function setMode(value: Mode) {
   toolSearch.value = ''
   mode.value = value
   resultLanguage.value = languageForMode(value)
-  statusMessage.value = `${getTool(value).name} 模式`
+  statusMessage.value = value === 'yangyuanhang-run' ? '按空格键开始奔跑' : `${getTool(value).name} 模式`
 }
 
 function toggleTheme() {
@@ -544,7 +546,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="app-shell" :class="[`theme-${settings.theme}`, { 'is-dragging': dragging, 'focus-input': focusPane === 'input', 'focus-output': focusPane === 'output' }]"
+  <main class="app-shell" :class="[`theme-${settings.theme}`, { 'is-dragging': dragging, 'focus-input': focusPane === 'input', 'focus-output': focusPane === 'output', 'is-runner': mode === 'yangyuanhang-run' }]"
     @dragenter.prevent="dragging = true" @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop="handleDomDrop">
     <input ref="nativeOpenInput" class="visually-hidden" type="file" accept=".json,.sql,.xml,.yaml,.yml,.txt,.md,.csv" @change="openBrowserFile" />
 
@@ -569,6 +571,7 @@ onBeforeUnmount(() => {
             <label class="setting-row"><span>SQL 方言</span><select v-model="settings.dialect"><option value="postgresql">PostgreSQL</option><option value="mysql">MySQL</option><option value="transactsql">SQL Server</option></select></label>
             <label class="setting-row"><span>关键字</span><select v-model="settings.keywordCase"><option value="upper">大写</option><option value="lower">小写</option><option value="preserve">保持原样</option></select></label>
             <label class="setting-row"><span>编辑器字号</span><select v-model.number="settings.fontSize"><option :value="12">12 px</option><option :value="13">13 px</option><option :value="14">14 px</option><option :value="15">15 px</option><option :value="16">16 px</option></select></label>
+            <label class="setting-row"><span>游戏粒子特效</span><select v-model="settings.gameEffects"><option value="full">完整</option><option value="reduced">精简</option><option value="off">关闭</option></select></label>
             <p class="settings-note">设置会本地保存；编辑内容不会自动保存。</p>
           </div></Transition>
         </div>
@@ -576,6 +579,8 @@ onBeforeUnmount(() => {
     </header>
 
     <section class="toolbar" aria-label="编辑操作">
+      <div v-if="mode === 'yangyuanhang-run'" class="runner-toolbar-hint">空格 跳跃 <b>·</b> P 暂停 / 继续 <b>·</b> R 重新开始 <b>·</b> Esc 暂停</div>
+      <template v-else>
       <Transition name="toolbar-content"><div v-if="!isSystemMode" class="toolbar-primary">
         <Transition name="toolbar-content"><div v-if="mode === 'json'" class="toolbar-mode-actions">
           <button class="button" :disabled="busy" @click="compact"><span class="button-glyph">⇢</span>压缩</button>
@@ -630,6 +635,7 @@ onBeforeUnmount(() => {
         </Transition>
       </div></Transition>
       <Transition name="toolbar-content"><span v-if="isSystemMode" class="system-toolbar-label">本机诊断 · 数据仅在本机读取</span></Transition>
+      </template>
     </section>
 
     <section class="workbench">
@@ -649,8 +655,9 @@ onBeforeUnmount(() => {
         </template>
         <p v-if="hasToolSearch && !filteredToolGroups.length" class="tool-search-empty">没有匹配的工具</p>
       </nav>
+      <YangYuanhangRunner v-show="mode === 'yangyuanhang-run'" class="runner-workspace" :active="mode === 'yangyuanhang-run'" :theme="settings.theme" :effects="settings.gameEffects" />
       <Transition name="workspace" mode="out-in">
-      <div v-if="getTool(mode).core" key="core-workspace" class="workbench-content" :class="[{ 'single-pane': focusPane }, focusPane ? `focus-${focusPane}` : '']">
+      <div v-if="mode !== 'yangyuanhang-run' && getTool(mode).core" key="core-workspace" class="workbench-content" :class="[{ 'single-pane': focusPane }, focusPane ? `focus-${focusPane}` : '']">
       <article class="editor-panel input-panel">
         <div class="panel-heading input-panel-heading">
           <div class="input-panel-main">
@@ -709,9 +716,9 @@ onBeforeUnmount(() => {
     </section>
 
     <footer class="statusbar">
-      <div class="status-leading"><span class="status-mode">{{ mode.toUpperCase() }}</span><span class="status-divider"></span><template v-if="!isSystemMode"><span>{{ metrics.lines }} 行</span><span>{{ charCount.toLocaleString() }} 字符</span><span>{{ metrics.bytes.toLocaleString() }} B</span></template><span v-else>本机工具</span></div>
-      <div class="status-message" :class="`status-${state}`"><span class="status-icon">{{ state === 'error' ? '!' : state === 'success' ? '✓' : '·' }}</span>{{ statusMessage }}<Transition name="fade-fast"><span v-if="errorLocation?.line" class="error-location">第 {{ errorLocation.line }} 行，第 {{ errorLocation.column }} 列</span></Transition></div>
-      <div class="status-trailing"><span class="encoding">UTF-8</span><span>Windows</span></div>
+      <div class="status-leading"><span class="status-mode">{{ mode === 'yangyuanhang-run' ? 'GAME' : mode.toUpperCase() }}</span><span class="status-divider"></span><template v-if="mode !== 'yangyuanhang-run' && !isSystemMode"><span>{{ metrics.lines }} 行</span><span>{{ charCount.toLocaleString() }} 字符</span><span>{{ metrics.bytes.toLocaleString() }} B</span></template><span v-else-if="isSystemMode">本机工具</span><span v-else>Canvas · 本地运行</span></div>
+      <div class="status-message" :class="`status-${state}`"><span class="status-icon">{{ state === 'error' ? '!' : state === 'success' ? '✓' : '·' }}</span>{{ mode === 'yangyuanhang-run' ? '游戏键盘仅在游戏区域生效' : statusMessage }}<Transition name="fade-fast"><span v-if="mode !== 'yangyuanhang-run' && errorLocation?.line" class="error-location">第 {{ errorLocation.line }} 行，第 {{ errorLocation.column }} 列</span></Transition></div>
+      <div class="status-trailing"><span v-if="mode !== 'yangyuanhang-run'" class="encoding">UTF-8</span><span>Windows</span></div>
     </footer>
 
     <transition name="toast"><div v-if="toast" class="toast-message"><span>✓</span>{{ toast }}</div></transition>
